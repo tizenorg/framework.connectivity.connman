@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=net.connman
+Exec=@PREFIX@/sbin/connmand -W wext
+User=root

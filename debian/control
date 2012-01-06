@@ -1,0 +1,28 @@
+Source: connman
+Section: net
+Priority: extra
+Maintainer: Danny Jeongseok Seo <s.seo@samsung.com>
+Uploaders: Danny Jeongseok Seo <s.seo@samsung.com>, DongHoo Park <donghoo.park@samsung.com>, Jaehyun Kim <jeik01.kim@samsung.com>, Misun Kim <ms0123.kim@samsung.com>, Sunkey Lee <yuvjjang.lee@samsung.com>, Sanghoon Cho <sanghoon80.cho@samsung.com>
+Build-Depends: debhelper (>= 5), autotools-dev, libglib2.0-dev, libdbus-1-dev, iptables-dev
+Standards-Version: 0.1.0
+
+Package: connman
+Section: net
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Intel Connection Manager daemon
+ The Linux Connection Manager project provides a daemon for managing
+ Internet connections within embedded devices running the Linux
+ operating system. The Connection Manager is designed to be slim and to
+ use as few resources as possible, so it can be easily integrated in
+ other Moblin-based embedded systems. It is fully modular system that
+ can be extended through plug-ins, to support all kinds of wired or
+ wireless technologies. Also, configuration methods like DHCP and
+ domain name resolving are implemented using plug-ins. The plug-in
+ approach allows for easy adaption and modification for various use cases.
+
+Package: connman-dbg
+Section: net
+Architecture: any
+Depends: connman (= ${Source-Version}), ${misc:Depends}
+Description: debug symbol for connman

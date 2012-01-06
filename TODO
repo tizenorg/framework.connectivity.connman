@@ -1,0 +1,178 @@
+Background
+==========
+
+- Priority scale: High, Medium and Low
+
+- Complexity scale: C1, C2, C4 and C8.
+   The complexity scale is exponential, with complexity 1 being the
+   lowest complexity. Complexity is a function of both task 'complexity'
+   and task 'scope'.
+
+Core
+====
+
+- Session API implementation
+
+   Priority: High
+   Complexity: C4
+   Owner: Daniel Wagner <daniel.wagner@bmw-carit.de>
+   Owner: Samuel Ortiz <sameo@linux.intel.com>
+
+   The session API should provide a connection abstraction in order to
+   prioritize applications network accesses, prevent or allow network
+   and bearer roaming, or provide applications with a way to request
+   for periodic network connections. On-demand connections will be
+   implemented through this API as well.
+   See http://www.mail-archive.com/connman@connman.net/msg01653.html
+
+
+- WiSPR support
+
+   Priority: Medium
+   Complexity: C4
+   Owner: Marcel Holtmann <marcel@holtmann.org>
+
+   Based on the portal detection parsing results, and provisioned
+   credentials, ConnMan should be able to initiate a WiSPR authentication.
+
+
+- DNS caching
+
+   Priority: Low
+   Complexity: C4
+
+   A simple initial implementation would see ConnMan's dnsproxy
+   caching the DNS record based on their TTL.
+
+
+- Power management
+
+   Priority: Medium
+   Complexity: C4
+   Owner: Samuel Ortiz <sameo@linux.intel.com>
+
+   Implement a simple device pm hook that ConnMan's core code would
+   use whenever it decides to put devices in power save mode. Although
+   the kernel runtime power management code should take care of that,
+   not all driver (especially WiFi ones) implement runtime PM hooks.
+
+
+- IP ranges allocation and check
+
+   Priority: High
+   Complexity: C2
+
+   For both tethering and private networks, but also to detect invalid
+   static IP configurations, we need to have a core IP range layer
+   that manages all currently used IP blocks.
+
+
+- Personal firewall
+
+   Priority: Low
+   Complexity: C8
+
+   Extend the iptables code and provide a D-Bus API for personal firewalling.
+
+
+- PACRunner extensions
+
+   Priority: Low
+   Complexity: C4
+
+   Support more URI schemes, support multiple connections, tighter
+   security integration.
+
+
+
+WiFi
+====
+
+- Ad-Hoc support
+
+   Priority: Medium
+   Complexity: C2
+   Owner: Samuel Ortiz <sameo@linux.intel.com>
+
+
+- Fast Connect
+
+   Priority: Low
+   Complexity: C4
+   Owner: Samuel Ortiz <sameo@linux.intel.com>
+
+
+- EAP-AKA/SIM
+
+   Priority: Medium
+   Complexity: C2
+   Owner: Samuel Ortiz <sameo@linux.intel.com>
+
+   This EAP is needed for SIM card based network authentication.
+   ConnMan here plays a minor role: Once wpa_supplicant is set up for
+   starting and EAP-AKA/SIM authentication, it will talk to a SIM card
+   through its pcsc-lite API.
+
+
+- EAP-FAST
+
+   Priority: Low
+   Complexity: C1
+
+
+- WiFi p2p
+
+   Priority: Medium
+   Complexity: C2
+
+
+
+Bluetooth
+=========
+
+- DUN client
+
+   Priority: Low
+   Complexity: C4
+   Owner: Mario Tokarz <mario.tokarz@bmw-carit.de>
+
+
+
+Cellular
+========
+
+
+VPN
+===
+
+- l2tp support
+
+   Priority: Low
+   Complexity: C2
+   Owner: Mohamed Abbas <mohamed.abbas@intel.com>
+
+
+- pptp support
+
+   Priority: Low
+   Complexity: C2
+   Owner: Mohamed Abbas <mohamed.abbas@intel.com>
+
+
+- IPsec
+
+   Priority: Low
+   Complexity: C4
+
+
+- Split tunnelling
+
+   Priority: Low
+   Complexity: C8
+   Dependencies: Core:Private networks
+
+   The current VPN support puts the VPN interface at the top of the
+   service list, giving VPNs the default route. When doing split
+   tunneling, the system routes packet to the VPN interface for
+   private IPs, while going through the default interface for the rest
+   of the traffic.

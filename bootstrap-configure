@@ -1,0 +1,34 @@
+#!/bin/sh
+
+if [ -f config.status ]; then
+	make maintainer-clean
+fi
+
+if [ ! -f doc/gtk-doc.make ]; then
+	gtkdocize --copy --docdir doc
+fi
+
+./bootstrap && \
+    ./configure --enable-maintainer-mode \
+		--enable-debug \
+		--prefix=/usr \
+		--mandir=/usr/share/man \
+		--localstatedir=/var \
+		--sysconfdir=/etc \
+		--disable-datafiles \
+		--enable-loopback=builtin \
+		--enable-ethernet=builtin \
+		--enable-wifi=builtin \
+		--enable-bluetooth=builtin \
+		--enable-ofono=builtin \
+		--enable-openconnect=builtin \
+		--enable-openvpn=builtin \
+		--enable-pacrunner=builtin \
+		--enable-google=builtin \
+		--enable-meego=builtin \
+		--enable-portal=builtin \
+		--enable-nmcompat=builtin \
+		--enable-polkit=builtin \
+		--enable-capng \
+		--enable-client \
+		--enable-tools $*
