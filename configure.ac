@@ -178,7 +178,7 @@ AM_CONDITIONAL(VPNC_BUILTIN, test "${enable_vpnc}" = "builtin")
 
 AC_ARG_ENABLE(loopback,
 	AC_HELP_STRING([--enable-loopback], [enable loopback support]),
-			[enable_loopback=${enableval}], [enable_loopback="no"])
+			[enable_loopback=${enableval}], [enable_loopback="yes"])
 if (test "${enable_loopback}" != "no"); then
 	AC_CHECK_HEADERS(sys/inotify.h, dummy=yes,
 			AC_MSG_ERROR(inotify header files are required))

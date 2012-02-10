@@ -198,6 +198,16 @@ const char *g_supplicant_network_get_security(GSupplicantNetwork *network);
 dbus_int16_t g_supplicant_network_get_signal(GSupplicantNetwork *network);
 dbus_bool_t g_supplicant_network_get_wps(GSupplicantNetwork *network);
 
+#if defined TIZEN_EXT
+/*
+ * Description: Network client requires additional wifi specific info
+ */
+const unsigned char *g_supplicant_network_get_bssid(GSupplicantNetwork *network);
+unsigned int g_supplicant_network_get_maxrate(GSupplicantNetwork *network);
+unsigned short g_supplicant_network_get_frequency(GSupplicantNetwork *network);
+const char *g_supplicant_network_get_enc_mode(GSupplicantNetwork *network);
+#endif
+
 struct _GSupplicantCallbacks {
 	void (*system_ready) (void);
 	void (*system_killed) (void);

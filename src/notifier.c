@@ -392,7 +392,12 @@ void __connman_notifier_default_changed(struct connman_service *service)
 	technology_default(type);
 
 	interface = connman_service_get_interface(service);
+#if !defined TIZEN_EXT
+/*
+ * Description: Tethering service is provided by external module in TIZEN
+ */
 	__connman_tethering_update_interface(interface);
+#endif
 	g_free(interface);
 
 	for (list = notifier_list; list; list = list->next) {

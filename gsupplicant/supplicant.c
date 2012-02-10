@@ -803,6 +803,53 @@ dbus_bool_t g_supplicant_network_get_wps(GSupplicantNetwork *network)
 	return network->wps;
 }
 
+#if defined TIZEN_EXT
+/*
+ * Description: Network client requires additional wifi specific info
+ */
+const unsigned char *g_supplicant_network_get_bssid(GSupplicantNetwork *network)
+{
+	if (network == NULL || network->best_bss == NULL)
+		return NULL;
+
+	return (const unsigned char *)network->best_bss->bssid;
+}
+
+unsigned int g_supplicant_network_get_maxrate(GSupplicantNetwork *network)
+{
+	if (network == NULL || network->best_bss == NULL)
+		return 0;
+
+	return network->best_bss->maxrate;
+}
+
+unsigned short g_supplicant_network_get_frequency(GSupplicantNetwork *network)
+{
+	if (network == NULL || network->best_bss == NULL)
+		return 0;
+
+	return network->best_bss->frequency;
+}
+
+const char *g_supplicant_network_get_enc_mode(GSupplicantNetwork *network)
+{
+	if (network == NULL || network->best_bss == NULL)
+		return NULL;
+
+	if ((network->best_bss->pairwise & G_SUPPLICANT_PAIRWISE_CCMP) &&
+	    (network->best_bss->pairwise & G_SUPPLICANT_PAIRWISE_TKIP))
+		return "mixed";
+	else if (network->best_bss->pairwise & G_SUPPLICANT_PAIRWISE_CCMP)
+		return "aes";
+	else if (network->best_bss->pairwise & G_SUPPLICANT_PAIRWISE_TKIP)
+		return "tkip";
+	else if (network->best_bss->security == G_SUPPLICANT_SECURITY_WEP)
+		return "wep";
+
+	return "none";
+}
+#endif
+
 static void merge_network(GSupplicantNetwork *network)
 {
 	GString *str;
@@ -3086,10 +3133,6 @@ static void network_remove_result(const char *error,
 
 	SUPPLICANT_DBG("");
 
-	interface = g_hash_table_lookup(interface_table, data->path);
-	if (interface == NULL)
-		return;
-
 	if (error != NULL)
 		result = -EIO;
 
@@ -3143,8 +3186,15 @@ static void interface_disconnect_result(const char *error,
 	if (interface == NULL)
 		return;
 
+#if defined TIZEN_EXT
+	if (error != NULL && data->callback != NULL) {
+		data->callback(-EIO, interface, data->user_data);
+		data->user_data = NULL;
+	}
+#else
 	if (error != NULL && data->callback != NULL)
 		data->callback(-EIO, interface, data->user_data);
+#endif
 
 	/* If we are disconnecting from previous WPS successful
 	 * association. i.e.: it did not went through AddNetwork,

@@ -1,10 +1,77 @@
+connman (0.77.2-0slp2+63) unstable; urgency=low
+
+  * Change sonet's dbus service name
+  * Git: pkgs/c/connman
+  * Tag: connman_0.77.2-0slp2+63
+
+ -- Sunkey Lee <yuvjjang.lee@samsung.com>  Thu, 09 Feb 2012 10:36:51 +0900
+
+connman (0.77.2-0slp2+62) unstable; urgency=low
+
+  * Add mixed wifi encryption mode to service interface
+  * Lookup a matched service using essid and update it immediately when Manager.ProvisionService is invoked
+  * Git: pkgs/c/connman
+  * Tag: connman_0.77.2-0slp2+62
+
+ -- Jaehyun Kim <jeik01.kim@samsung.com>  Thu, 02 Feb 2012 20:00:10 +0900
+
+connman (0.77.2-0slp2+61) unstable; urgency=low
+
+  * Add a propertiy(wifi encryption mode) to service interface
+  * Git: pkgs/c/connman
+  * Tag: connman_0.77.2-0slp2+61
+
+ -- Jaehyun Kim <jeik01.kim@samsung.com>  Wed, 01 Feb 2012 16:42:26 +0900
+
+connman (0.77.2-0slp2+60) unstable; urgency=low
+
+  * Fix wifi disconnect callback bug
+  * Git: pkgs/c/connman
+  * Tag: connman_0.77.2-0slp2+60
+
+ -- Sunkey Lee <yuvjjang.lee@samsung.com>  Tue, 31 Jan 2012 16:20:46 +0900
+
+connman (0.77.2-0slp2+59) unstable; urgency=low
+
+  * Enable loopback plugin
+  * Git: pkgs/c/connman
+  * Tag: connman_0.77.2-0slp2+59
+
+ -- Sunkey Lee <yuvjjang.lee@samsung.com>  Wed, 25 Jan 2012 14:29:57 +0900
+
+connman (0.77.2-0slp2+58) unstable; urgency=low
+
+  * Modify the way to set dbus access authority
+  * According to security plicy, change to use ID from string
+  * Git: pkgs/c/connman
+  * Tag: connman_0.77.2-0slp2+58
+
+ -- Sanghoon Cho <sanghoon80.cho@samsung.com>  Tue, 17 Jan 2012 17:13:02 +0900
+
+connman (0.77.2-0slp2+57) unstable; urgency=low
+
+  * Fix a disconnect callback crash
+  * Git: pkgs/c/connman
+  * Tag: connman_0.77.2-0slp2+57
+
+ -- Sunkey Lee <yuvjjang.lee@samsung.com>  Thu, 12 Jan 2012 21:50:24 +0900
+
+connman (0.77.2-0slp2+56) unstable; urgency=low
+
+  * Fix a bug
+  * The WPS flag("UseWPS") is not cleared when cancel the wps connection
+  * Git: pkgs/c/connman
+  * Tag: connman_0.77.2-0slp2+56
+
+ -- Sanghoon Cho <sanghoon80.cho@samsung.com>  Thu, 12 Jan 2012 20:36:07 +0900
+
 connman (0.77.2-0slp2+55) unstable; urgency=low
 
   * Release connman_0.77.2-0slp2+55
   * Git: pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+55
 
- -- DongHoo Park <donghoo.park@samsung.com>  Fri, 23 Dec 2011 12:50:07 +0900
+ -- Jaehyun Kim <jeik01.kim@samsung.com>  Thu, 12 Jan 2012 11:20:49 +0900
 
 connman (0.77.2-0slp2+54) unstable; urgency=low
 

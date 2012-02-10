@@ -1705,6 +1705,37 @@ connman_bool_t __connman_service_session_dec(struct connman_service *service)
 	return TRUE;
 }
 
+#if defined TIZEN_EXT
+static void append_wifi_ext_info(DBusMessageIter *dict,
+					struct connman_network *network)
+{
+	char bssid_buff[18] = {0,};
+	unsigned char *bssid_str = bssid_buff;
+	unsigned char *bssid;
+	unsigned int maxrate;
+	connman_uint16_t frequency;
+	const char *enc_mode;
+
+	bssid = connman_network_get_bssid(network);
+	maxrate = connman_network_get_maxrate(network);
+	frequency = connman_network_get_frequency(network);
+	enc_mode = connman_network_get_enc_mode(network);
+
+	snprintf(bssid_str, 18, "%02x:%02x:%02x:%02x:%02x:%02x",
+				bssid[0], bssid[1], bssid[2],
+				bssid[3], bssid[4], bssid[5]);
+
+	connman_dbus_dict_append_basic(dict, "BSSID",
+					DBUS_TYPE_STRING, &bssid_str);
+	connman_dbus_dict_append_basic(dict, "MaxRate",
+					DBUS_TYPE_UINT32, &maxrate);
+	connman_dbus_dict_append_basic(dict, "Frequency",
+					DBUS_TYPE_UINT16, &frequency);
+	connman_dbus_dict_append_basic(dict, "EncryptionMode",
+					DBUS_TYPE_STRING, &enc_mode);
+}
+#endif
+
 static void append_properties(DBusMessageIter *dict, dbus_bool_t limited,
 					struct connman_service *service)
 {
@@ -1794,6 +1825,11 @@ static void append_properties(DBusMessageIter *dict, dbus_bool_t limited,
 
 		connman_dbus_dict_append_basic(dict, "PassphraseRequired",
 						DBUS_TYPE_BOOLEAN, &required);
+
+#if defined TIZEN_EXT
+		if (service->network != NULL)
+			append_wifi_ext_info(dict, service->network);
+#endif
 
 		/* fall through */
 	case CONNMAN_SERVICE_TYPE_ETHERNET:
@@ -3802,6 +3838,13 @@ static int __connman_service_indicate_state(struct connman_service *service)
 
 	if (new_state == CONNMAN_SERVICE_STATE_IDLE) {
 #if defined TIZEN_EXT
+		if (service->type == CONNMAN_SERVICE_TYPE_WIFI &&
+			connman_network_get_bool(service->network,
+						"WiFi.UseWPS") == TRUE) {
+			connman_network_set_bool(service->network,
+							"WiFi.UseWPS", FALSE);
+		}
+
 		reply_pending(service, ECONNABORTED);
 		__connman_device_request_scan(service->type);
 #else
@@ -3891,10 +3934,6 @@ static int __connman_service_indicate_state(struct connman_service *service)
 		service_complete(service);
 
 		__connman_device_request_scan(CONNMAN_DEVICE_TYPE_UNKNOWN);
-#if defined TIZEN_EXT
-		if (service->type == CONNMAN_SERVICE_TYPE_CELLULAR)
-			g_atomic_int_set(&service->user_initiated_pdp_connection_refcount, 0);
-#endif
 	} else
 		service->error = CONNMAN_SERVICE_ERROR_UNKNOWN;
 
@@ -4020,6 +4059,12 @@ int __connman_service_ipconfig_indicate_state(struct connman_service *service,
 	if (ipconfig == NULL)
 		return -EINVAL;
 
+#if defined TIZEN_EXT
+	if (new_state == CONNMAN_SERVICE_STATE_FAILURE &&
+	    service->type == CONNMAN_SERVICE_TYPE_CELLULAR) {
+		g_atomic_int_set(&service->user_initiated_pdp_connection_refcount, 0);
+	}
+#endif
 	/* Any change? */
 	if (old_state == new_state)
 		return -EALREADY;
@@ -4168,13 +4213,14 @@ static int service_connect(struct connman_service *service)
 		case CONNMAN_SERVICE_SECURITY_PSK:
 		case CONNMAN_SERVICE_SECURITY_WPA:
 		case CONNMAN_SERVICE_SECURITY_RSN:
+			DBG("service->wps : %d", service->wps);
 			if (service->passphrase == NULL) {
 				if (service->network == NULL)
 					return -EOPNOTSUPP;
 #if defined TIZEN_EXT
 				if(service->wps == TRUE)
 				{
-					connman_network_set_bool(service->network, 	"WiFi.UseWPS", TRUE);
+					connman_network_set_bool(service->network, "WiFi.UseWPS", TRUE);
 					break;
 				}
 				else
@@ -4189,6 +4235,7 @@ static int service_connect(struct connman_service *service)
 			}
 			break;
 		case CONNMAN_SERVICE_SECURITY_8021X:
+			DBG("service->eap : %s", service->eap);
 			if (service->eap == NULL)
 				return -EINVAL;
 
@@ -4322,7 +4369,7 @@ int __connman_service_connect(struct connman_service *service)
 							NULL) == -EIO)
 				return -EINPROGRESS;
 		}
-		reply_pending(service, err);
+		reply_pending(service, -err);
 	}
 
 	return err;
@@ -4434,6 +4481,7 @@ static struct connman_service *lookup_by_identifier(const char *identifier)
 {
 	GSequenceIter *iter;
 
+	DBG("ident %s", identifier);
 	iter = g_hash_table_lookup(service_hash, identifier);
 	if (iter != NULL)
 		return g_sequence_get(iter);
@@ -4669,6 +4717,13 @@ int __connman_service_provision(DBusMessage *msg)
 	char *group = NULL, *ident = NULL;
 	int err = 0;
 	struct connman_service *service;
+#if defined TIZEN_EXT
+	struct connman_device * device;
+	const char *mode = "managed", *security = "ieee8021x";
+	char * name = NULL, *type = NULL;
+	char * device_ident = NULL;
+	int name_len = 0;
+#endif
 
 	DBG("");
 
@@ -4702,8 +4757,46 @@ int __connman_service_provision(DBusMessage *msg)
 	if (err < 0)
 		goto done;
 
+#if !defined TIZEN_EXT
 	ident = group + strlen("service_");
+#else
+	device = __connman_device_find_device(CONNMAN_SERVICE_TYPE_WIFI);
+	if (device == NULL) {
+		err = -EOPNOTSUPP;
+		goto done;
+	}
 
+	device_ident = connman_device_get_ident(device);
+	if (device_ident == NULL) {
+		err = -EOPNOTSUPP;
+		goto done;
+	}
+
+	type = g_key_file_get_string(keyfile, group, "Type", NULL);
+	if(type == NULL) {
+		err = -EINVAL;
+		goto done;
+	}
+
+	name = g_key_file_get_string(keyfile, group, "Name", NULL);
+	if(name == NULL) {
+		err = -EINVAL;
+		goto done;
+	}
+
+	name_len = strlen(name);
+
+	group = wifi_build_group_name((unsigned char *) name,
+						name_len, mode, security);
+	if (group == NULL) {
+		err = -EINVAL;
+		goto done;
+	}
+
+	DBG("group %s ", group);
+
+	ident = g_strdup_printf("%s_%s_%s", type, device_ident, group);
+#endif
 	/* trigger service provisioning if service exists */
 	service = lookup_by_identifier(ident);
 	if (service != NULL)

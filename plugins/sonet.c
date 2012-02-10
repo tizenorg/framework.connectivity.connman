@@ -18,7 +18,7 @@
 #include <connman/technology.h>
 #include <connman/log.h>
 
-#define SONET_SERVICE				"org.tizen.sonet"
+#define SONET_SERVICE				"net.sonet"
 
 #define SONET_MASTER_INTERFACE		SONET_SERVICE ".master"
 #define SONET_MODEM_INTERFACE		SONET_SERVICE ".modem"
@@ -1329,5 +1329,5 @@ static void sonet_exit(void)
 	dbus_connection_unref(connection);
 }
 
-CONNMAN_PLUGIN_DEFINE(sonet, "Tizen OpenSrc Network Framework plugin", VERSION,
+CONNMAN_PLUGIN_DEFINE(sonet, "Samsung OpenSrc Network Framework plugin", VERSION,
 		CONNMAN_PLUGIN_PRIORITY_DEFAULT, sonet_init, sonet_exit)

@@ -135,11 +135,11 @@ static void __always_on_service_added(struct connman_service *service, const cha
 	gchar **strv;
 	int index = 0;
 
-	strv = g_strsplit_set(path, "_", -1);	
+	strv = g_strsplit_set(path, "_", -1);
 	index = g_strv_length(strv);
 	svc_category_id = atoi(strv[index-1]);
 	g_strfreev(strv);
-	
+
 	DBG("svc category id (%d)",svc_category_id);
 
 	//internet service
@@ -148,7 +148,7 @@ static void __always_on_service_added(struct connman_service *service, const cha
 
 		__reset_retry_timer();
 
-		DBG("cellular internet service path (%s), service(%p) added", path, service); 
+		DBG("cellular internet service path (%s), service(%p) added", path, service);
 
 		if(connected_default_service == NULL){
 			DBG("request to connect default cellular service");
@@ -169,7 +169,7 @@ static void __always_on_service_removed(struct connman_service *service)
 		DBG("service type is not cellular device");
 		return;
 	}
-	
+
 	if(celluar_default_service == service){
 		DBG("cellular internet service removed");
 		celluar_default_service = NULL;
@@ -182,7 +182,7 @@ static void __always_on_service_removed(struct connman_service *service)
 			__send_default_connection_info(service, CONNMAN_SERVICE_STATE_IDLE);
 		}
 	}
-	
+
 	return;
 }
 
@@ -207,13 +207,13 @@ void __always_on_cellular_service_enabled(connman_bool_t enabled)
 	if(enabled && connected_default_service == NULL){
 		DBG("connect default cellular service");
 		__request_service_connect(celluar_default_service);
-		
+
 	}
 	else if(enabled == FALSE && connected_default_service == celluar_default_service){
 		DBG("disconnect default cellular service");
 		__request_service_disconnect(celluar_default_service);
 	}
-	
+
 	return;
 }
 
@@ -224,7 +224,7 @@ static void __always_on_service_state_changed(struct connman_service *service, e
 	}
 
 	DBG("service state changed service type[%d] state[%d]",connman_service_get_type(service), state);
-	
+
 	if(state == CONNMAN_SERVICE_STATE_IDLE){
 		__unset_default_connected_service(service, state);
 	}
@@ -252,14 +252,14 @@ static void  __always_on_service_proxy_changed(struct connman_service *service)
 {
 	DBG("service proxy changed notifier");
 	int service_state = 0;
-	
+
 	if(connected_default_service == NULL ||service != connected_default_service){
 		return;
 	}
 
 	service_state = CONNMAN_SERVICE_STATE_READY;
 	__send_default_connection_info(service, service_state);
-	
+
 	return;
 }
 
@@ -312,7 +312,7 @@ void __unset_default_connected_service(struct connman_service *service, enum con
 		DBG("not a default cellular service");
 		return;
 	}
-	
+
 	if(connected_default_service == NULL || connected_default_service == service){
 		DBG("request default cellular service connect");
 		connected_default_service = NULL;
@@ -371,7 +371,7 @@ void __set_default_connected_service(struct connman_service *service, enum connm
 	}
 
 	DBG("current default connected service (%p)", connected_default_service);
-	return;	
+	return;
 }
 
 static int __dbus_request(const char *path, const char *interface, const char *method,
@@ -390,7 +390,7 @@ static int __dbus_request(const char *path, const char *interface, const char *m
 	if (path == NULL)
 		return -EINVAL;
 
-	message = dbus_message_new_method_call("org.tizen.sonet", path, interface, method);
+	message = dbus_message_new_method_call("net.sonet", path, interface, method);
 	if (message == NULL)
 		return -ENOMEM;
 
@@ -418,7 +418,7 @@ static int __dbus_request(const char *path, const char *interface, const char *m
 	dbus_pending_call_set_notify(call, notify, user_data, free_function);
 
 	dbus_message_unref(message);
-	
+
 	return -EINPROGRESS;
 }
 
@@ -428,7 +428,7 @@ void __send_default_connection_info(struct connman_service *service, enum connma
 	gchar *connection_type = NULL, *connection_state = NULL, *ip_addr = NULL, *proxy_addr = NULL;
 	int service_type = 0;
 	gchar **proxy_list = NULL;
-	
+
 	service_type = connman_service_get_type(service);
 	const char* tmp = __always_on_service_type2string(service_type);
 	connection_type = g_strdup(tmp);
@@ -455,9 +455,9 @@ void __send_default_connection_info(struct connman_service *service, enum connma
 	if(proxy_addr == NULL)
 		proxy_addr = g_strdup("");
 
-	__dbus_request("/", "org.tizen.sonet.master", "UpdateDefaultConnectionInfo",
-		NULL, NULL, NULL, 
-		DBUS_TYPE_STRING,&connection_type, DBUS_TYPE_STRING,&connection_state, 
+	__dbus_request("/", "net.sonet.master", "UpdateDefaultConnectionInfo",
+		NULL, NULL, NULL,
+		DBUS_TYPE_STRING,&connection_type, DBUS_TYPE_STRING,&connection_state,
 		DBUS_TYPE_STRING,&ip_addr, DBUS_TYPE_STRING,&proxy_addr,DBUS_TYPE_INVALID);
 
 	g_free(connection_type);
@@ -465,7 +465,7 @@ void __send_default_connection_info(struct connman_service *service, enum connma
 	g_free(ip_addr);
 	g_free(proxy_addr);
 	g_strfreev(proxy_list);
-	
+
 	return;
 }
 
@@ -510,7 +510,7 @@ static struct connman_notifier notifier = {
 
 static int alwayson_init(void)
 {
-	DBG("alwayson init");	
+	DBG("alwayson init");
 	connection = connman_dbus_get_connection();
 	connman_notifier_register(&notifier);
 	connection_timeout = TIMEOUT_DEFAULT;

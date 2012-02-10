@@ -200,11 +200,6 @@ static void timeout_handler_free(void *data)
 {
 	struct timeout_handler *handler = data;
 
-#if defined TIZEN_EXT
-	if (handler == NULL)
-		return;
-#endif
-
 	if (handler->id > 0) {
 		g_source_remove(handler->id);
 		handler->id = 0;

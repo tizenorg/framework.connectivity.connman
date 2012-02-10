@@ -228,7 +228,7 @@ DISTCHECK_CONFIGURE_FLAGS = --disable-gtk-doc \
 				--enable-bluetooth \
 				--enable-ofono \
 				--enable-sonet \
-				--enable-sec-ext \
+				--enable-tizen-ext \
 				--enable-alwayson \
 				--enable-pacrunner \
 				--enable-google \

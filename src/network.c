@@ -73,6 +73,11 @@ struct connman_network {
 		connman_bool_t wps;
 		connman_bool_t use_wps;
 		char *pin_wps;
+#if defined TIZEN_EXT
+		char encryption_mode[6];
+		unsigned char bssid[6];
+		unsigned int maxrate;
+#endif
 	} wifi;
 
 	struct {
@@ -1455,6 +1460,64 @@ int connman_network_set_proxy(struct connman_network *network,
 	connman_service_set_proxy_method(service, CONNMAN_SERVICE_PROXY_METHOD_MANUAL);
 
 	return 0;
+}
+
+/*
+ * Description: Network client requires additional wifi specific info
+ */
+int connman_network_set_bssid(struct connman_network *network,
+				const unsigned char *bssid)
+{
+	if (bssid == NULL)
+		return -EINVAL;
+
+	DBG("network %p bssid %02x:%02x:%02x:%02x:%02x:%02x", network,
+			bssid[0], bssid[1], bssid[2],
+			bssid[3], bssid[4], bssid[5]);
+
+	int i = 0;
+	for (;i < 6;i++)
+		network->wifi.bssid[i] = bssid[i];
+
+	return 0;
+}
+
+unsigned char *connman_network_get_bssid(struct connman_network *network)
+{
+	return (unsigned char *)network->wifi.bssid;
+}
+
+int connman_network_set_maxrate(struct connman_network *network,
+				unsigned int maxrate)
+{
+	DBG("network %p maxrate %d", network, maxrate);
+
+	network->wifi.maxrate = maxrate;
+
+	return 0;
+}
+
+unsigned int connman_network_get_maxrate(struct connman_network *network)
+{
+	return network->wifi.maxrate;
+}
+
+int connman_network_set_enc_mode(struct connman_network *network,
+				const char *encryption_mode)
+{
+	if (encryption_mode == NULL)
+		return -EINVAL;
+
+	DBG("network %p encryption mode %s", network, encryption_mode);
+
+	g_strlcpy(network->wifi.encryption_mode, encryption_mode, 6);
+
+	return 0;
+}
+
+const char *connman_network_get_enc_mode(struct connman_network *network)
+{
+	return (const char *)network->wifi.encryption_mode;
 }
 #endif
 

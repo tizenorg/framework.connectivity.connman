@@ -1048,6 +1048,17 @@ static void network_added(GSupplicantNetwork *supplicant_network)
 
 	connman_network_set_available(network, TRUE);
 
+#if defined TIZEN_EXT
+	connman_network_set_bssid(network,
+			g_supplicant_network_get_bssid(supplicant_network));
+	connman_network_set_maxrate(network,
+			g_supplicant_network_get_maxrate(supplicant_network));
+	connman_network_set_frequency(network,
+			g_supplicant_network_get_frequency(supplicant_network));
+	connman_network_set_enc_mode(network,
+			g_supplicant_network_get_enc_mode(supplicant_network));
+#endif
+
 	if (ssid != NULL)
 		connman_network_set_group(network, group);
 }
@@ -1105,6 +1116,20 @@ static void network_changed(GSupplicantNetwork *network, const char *property)
 					calculate_strength(network));
 	       connman_network_update(connman_network);
 	}
+
+#if defined TIZEN_EXT
+	const unsigned char *bssid;
+	unsigned int maxrate;
+	connman_uint16_t frequency;
+
+	bssid = g_supplicant_network_get_bssid(network);
+	maxrate = g_supplicant_network_get_maxrate(network);
+	frequency = g_supplicant_network_get_frequency(network);
+
+	connman_network_set_bssid(connman_network, bssid);
+	connman_network_set_maxrate(connman_network, maxrate);
+	connman_network_set_frequency(connman_network, frequency);
+#endif
 }
 
 static void debug(const char *str)
