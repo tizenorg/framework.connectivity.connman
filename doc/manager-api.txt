@@ -308,11 +308,3 @@ Properties	string State [readonly]
 			method calls are disallowed.
 
 			The default value is false.
-			
-		byte ScanMode [readwrite]
-			This decides background scan interval. It should be one of 
-			0(default-300s), 1(periodic-10s) and 2(exponential-4,8,16,...,128s).
-			Background scan trigger is restarted if the same mode is set again.
-			
-			The default value is 0.
-			

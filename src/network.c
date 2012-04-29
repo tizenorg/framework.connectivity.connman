@@ -1134,9 +1134,8 @@ static gboolean set_connected(gpointer user_data)
 		}
 
 #if defined TIZEN_EXT
-		int service_type = 0;
-		service_type = connman_service_get_type(service);
-		if(service_type == CONNMAN_SERVICE_TYPE_CELLULAR){
+		if (connman_service_get_type(service) ==
+				CONNMAN_SERVICE_TYPE_CELLULAR) {
 			network->connecting = FALSE;
 			connman_network_set_associating(network, FALSE);
 		}
@@ -1150,9 +1149,9 @@ static gboolean set_connected(gpointer user_data)
 					CONNMAN_IPCONFIG_TYPE_IPV6);
 
 #if defined TIZEN_EXT
-		if(service_type == CONNMAN_SERVICE_TYPE_CELLULAR){
+		if (connman_service_get_type(service) ==
+				CONNMAN_SERVICE_TYPE_CELLULAR)
 			return FALSE;
-		}
 #endif
 	}
 
@@ -1245,8 +1244,8 @@ int __connman_network_connect(struct connman_network *network)
 
 #if defined TIZEN_EXT
 	if (network->type != CONNMAN_NETWORK_TYPE_CELLULAR)
-		__connman_device_disconnect(network->device);
 #endif
+	__connman_device_disconnect(network->device);
 
 	err = network->driver->connect(network);
 	if (err < 0) {
@@ -1442,7 +1441,7 @@ int connman_network_set_ipaddress(struct connman_network *network,
 
 #if defined TIZEN_EXT
 /*
- * Description: SONET plug-in requires manual PROXY setting function
+ * Description: Telephony plug-in requires manual PROXY setting function
  */
 int connman_network_set_proxy(struct connman_network *network,
 				const char *proxies)
@@ -1518,6 +1517,26 @@ int connman_network_set_enc_mode(struct connman_network *network,
 const char *connman_network_get_enc_mode(struct connman_network *network)
 {
 	return (const char *)network->wifi.encryption_mode;
+}
+
+const char *connman_network_get_ifname(struct connman_network *network)
+{
+	struct connman_service *service;
+	struct connman_ipconfig *ipconfig;
+	const char *ifname = NULL;
+
+	service = __connman_service_lookup_from_network(network);
+	if (service == NULL)
+		return NULL;
+
+	ipconfig = __connman_service_get_ip4config(service);
+
+	if (ipconfig != NULL)
+		ifname = connman_ipconfig_get_ifname(ipconfig);
+
+	DBG("index %d, service %p ip4config %p ifname %s",
+			network->index, service, ipconfig, ifname);
+	return ifname;
 }
 #endif
 

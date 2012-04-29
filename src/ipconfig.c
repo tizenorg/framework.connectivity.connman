@@ -655,6 +655,13 @@ update:
 			ipconfig->ops->down(ipconfig);
 	}
 
+#if defined TIZEN_EXT
+	if (g_strcmp0(ipdevice->address, address) != 0) {
+		g_free(ipdevice->address);
+		ipdevice->address = g_strdup(address);
+	}
+#endif
+
 	if (lower_up)
 		__connman_ipconfig_lower_up(ipdevice);
 	if (lower_down)
@@ -1062,13 +1069,6 @@ const char *__connman_ipconfig_get_local(struct connman_ipconfig *ipconfig)
 
 	return ipconfig->address->local;
 }
-
-#if defined TIZEN_EXT
-const char *connman_ipconfig_get_local(struct connman_ipconfig *ipconfig)
-{
-	return __connman_ipconfig_get_local(ipconfig);
-}
-#endif 
 
 void __connman_ipconfig_set_local(struct connman_ipconfig *ipconfig, const char *address)
 {

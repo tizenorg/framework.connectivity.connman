@@ -63,7 +63,7 @@ AC_ARG_ENABLE(threads,
 
 AC_ARG_ENABLE(ethernet,
 	AC_HELP_STRING([--enable-ethernet], [enable Ethernet support]),
-			[enable_ethernet=${enableval}], [enable_ethernet="no"])
+			[enable_ethernet=${enableval}], [enable_ethernet="yes"])
 AM_CONDITIONAL(ETHERNET, test "${enable_ethernet}" != "no")
 AM_CONDITIONAL(ETHERNET_BUILTIN, test "${enable_ethernet}" = "builtin")
 
@@ -95,17 +95,11 @@ AC_ARG_ENABLE(ofono,
 AM_CONDITIONAL(OFONO, test "${enable_ofono}" != "no")
 AM_CONDITIONAL(OFONO_BUILTIN, test "${enable_ofono}" = "builtin")
 
-AC_ARG_ENABLE(sonet,
-	AC_HELP_STRING([--enable-sonet], [enable Sonet support]),
-			[enable_sonet=${enableval}], [enable_sonet="no"])
-AM_CONDITIONAL(SONET, test "${enable_sonet}" != "no")
-AM_CONDITIONAL(SONET_BUILTIN, test "${enable_sonet}" = "builtin")
-
-AC_ARG_ENABLE(alwayson,
-	AC_HELP_STRING([--enable-alwayson], [enable AlwaysOn support]),
-			[enable_alwayson=${enableval}], [enable_alwayson="no"])
-AM_CONDITIONAL(ALWAYSON, test "${enable_alwayson}" != "no")
-AM_CONDITIONAL(ALWAYSON_BUILTIN, test "${enable_alwayson}" = "builtin")
+AC_ARG_ENABLE(telephony,
+	AC_HELP_STRING([--enable-telephony], [enable Telephony support]),
+			[enable_telephony=${enableval}], [enable_telephony="yes"])
+AM_CONDITIONAL(TELEPHONY, test "${enable_telephony}" != "no")
+AM_CONDITIONAL(TELEPHONY_BUILTIN, test "${enable_telephony}" = "builtin")
 
 AC_ARG_ENABLE(tizen-ext, AC_HELP_STRING([--enable-tizen-ext],
 			[enable TIZEN extensions]), [

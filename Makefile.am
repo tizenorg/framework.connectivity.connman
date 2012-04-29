@@ -227,9 +227,8 @@ DISTCHECK_CONFIGURE_FLAGS = --disable-gtk-doc \
 				--enable-wifi \
 				--enable-bluetooth \
 				--enable-ofono \
-				--enable-sonet \
+				--enable-telephony \
 				--enable-tizen-ext \
-				--enable-alwayson \
 				--enable-pacrunner \
 				--enable-google \
 				--enable-meego \

@@ -23,15 +23,11 @@ DATADIR ?= /opt
 CONFIGURE_ARGS = \
 		--localstatedir=/var \
 		--enable-threads \
-		--enable-sonet \
 		--enable-tizen-ext \
-		--enable-alwayson \
 		--enable-wifi=builtin \
 		$(NULL)
 #		--enable-debug \
 #                $(NULL)
-
-
 
 configure: configure.ac
 	./autogen.sh
@@ -61,40 +57,57 @@ build-stamp:  config.status
 clean:
 	dh_testdir
 	dh_testroot
-	rm -f build-stamp 
+	rm -f build-stamp
 
 	# Add here commands to clean up after the build process.
 	-$(MAKE) distclean
-ifneq "$(wildcard /usr/share/misc/config.sub)" ""
-	cp -f /usr/share/misc/config.sub config.sub
-endif
-ifneq "$(wildcard /usr/share/misc/config.guess)" ""
-	cp -f /usr/share/misc/config.guess config.guess
-endif
 
 	for f in `find $(CURDIR)/debian/ -name "*.in"`; do \
 		rm -f $${f%.in}; \
 	done
+
+	rm -f depcomp
+	rm -f compile
+	rm -f missing
+	rm -f ltmain.sh
+	rm -f install-sh
+	rm -f config.guess
+	rm -f configh.h
+	rm -f config.h.in
+	rm -f config.log
+	rm -f config.sub
+	rm -f config.guess
+	rm -f configure
+	rm -f Makefile.in
+	rm -f aclocal.m4
+	rm -f ../connman_*.deb
+	rm -f ../connman-*.deb
+	rm -f ../connman_*.changes
+	rm -f ../connman_*.dsc
+	rm -f ../connman_*.tar.gz
 
 	dh_clean
 
 install: build
 	dh_testdir
 	dh_testroot
-	dh_clean -k 
+	dh_clean -k
 	dh_installdirs
 
 	# Add here commands to install the package into debian/connman.
 	$(MAKE) DESTDIR=$(CURDIR)/debian/tmp install
 
+	mkdir -p $(CURDIR)/debian/tmp/var/lib/connman
+	cp -f $(CURDIR)/resources/var/lib/connman/default.profile \
+		$(CURDIR)/debian/tmp/var/lib/connman/default.profile
 	mkdir -p $(CURDIR)/debian/tmp$(PREFIX)/share/dbus-1/services
-	cp -f $(CURDIR)/debian/net.connman.service \
-		$(CURDIR)/debian/tmp$(PREFIX)/share/dbus-1/services
-	mkdir -p $(CURDIR)/debian/tmp$(PREFIX)/etc
+	cp -f $(CURDIR)/resources$(PREFIX)/share/dbus-1/services/net.connman.service \
+		$(CURDIR)/debian/tmp$(PREFIX)/share/dbus-1/services/net.connman.service
 	mkdir -p $(CURDIR)/debian/tmp$(PREFIX)/etc/connman
-	cp -f $(CURDIR)/src/main.conf $(CURDIR)/debian/tmp$(PREFIX)/etc/connman
+	cp -f $(CURDIR)/src/main.conf $(CURDIR)/debian/tmp$(PREFIX)/etc/connman/main.conf
 	mkdir -p $(CURDIR)/debian/tmp/etc/rc.d/init.d
-	cp -f $(CURDIR)/etc/rc.d/init.d/connman $(CURDIR)/debian/tmp/etc/rc.d/init.d/connman
+	cp -f $(CURDIR)/resources/etc/rc.d/init.d/connman \
+		$(CURDIR)/debian/tmp/etc/rc.d/init.d/connman
 	mkdir -p $(CURDIR)/debian/tmp/etc/rc.d/rc3.d
 	ln -s ../init.d/connman $(CURDIR)/debian/tmp/etc/rc.d/rc3.d/S61connman
 	mkdir -p $(CURDIR)/debian/tmp/etc/rc.d/rc5.d
@@ -109,12 +122,12 @@ binary-indep: build install
 binary-arch: build install
 	dh_testdir
 	dh_testroot
-#	dh_installchangelogs 
+#	dh_installchangelogs
 #	dh_installdocs
 #	dh_installexamples
 	dh_install --sourcedir=debian/tmp
 #	dh_installmenu
-#	dh_installdebconf	
+#	dh_installdebconf
 #	dh_installlogrotate
 #	dh_installemacsen
 #	dh_installpam

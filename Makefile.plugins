@@ -83,27 +83,15 @@ plugins_ofono_la_LDFLAGS = $(plugin_ldflags)
 endif
 endif
 
-if SONET
-if SONET_BUILTIN
-builtin_modules += sonet
-builtin_sources += plugins/sonet.c
+if TELEPHONY
+if TELEPHONY_BUILTIN
+builtin_modules += telephony
+builtin_sources += plugins/telephony.c
 else
-plugin_LTLIBRARIES += plugins/sonet.la
-plugin_objects += $(plugins_sonet_la_OBJECTS)
-plugins_sonet_la_CFLAGS = $(plugin_cflags)
-plugins_sonet_la_LDFLAGS = $(plugin_ldflags)
-endif
-endif
-
-if ALWAYSON
-if ALWAYSON_BUILTIN
-builtin_modules += alwayson
-builtin_sources += plugins/alwayson.c
-else
-plugin_LTLIBRARIES += plugins/alwayson.la
-plugin_objects += $(plugins_alwayson_la_OBJECTS)
-plugins_alwayson_la_CFLAGS = $(plugin_cflags)
-plugins_alwayson_la_LDFLAGS = $(plugin_ldflags)
+plugin_LTLIBRARIES += plugins/telephony.la
+plugin_objects += $(plugins_telephony_la_OBJECTS)
+plugins_telephony_la_CFLAGS = $(plugin_cflags)
+plugins_telephony_la_LDFLAGS = $(plugin_ldflags)
 endif
 endif
 

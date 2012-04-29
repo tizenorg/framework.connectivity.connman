@@ -68,22 +68,13 @@ struct connman_device {
 	GHashTable *networks;
 
 #if defined TIZEN_EXT
-	connman_bool_t cellular_service_enabled;
-	enum connman_bgscan_mode bgscan_mode;
+	/* It contains number of favorite Wi-Fi profile.
+	 * If significant wifi profile is 0, Wi-Fi device does not trigger scan. */
 	gint significant_wifi_profile_refcount;
 #endif
 };
 
 #define SCAN_INITIAL_DELAY 10
-
-#if defined TIZEN_EXT
-#define SCAN_PERIODIC_DELAY 10
-#define SCAN_DEFAULT_DELAY 300
-#define SCAN_EXPONENTIAL_MAX 	128
-#define SCAN_EXPONENTIAL_MIN	4
-
-static void set_next_scan_trigger(struct connman_device * device);
-#endif
 
 #if defined TIZEN_EXT
 static void __connman_device_set_significant_wifi_profile_refcount(struct connman_device *device, gint refcount)
@@ -111,13 +102,6 @@ static connman_bool_t __connman_device_is_no_ref_significant_wifi_profile(struct
 
 static gboolean device_scan_trigger(gpointer user_data)
 {
-#if defined TIZEN_EXT
-	GHashTableIter iter;
-	gpointer key, value;
-	connman_bool_t connected = FALSE;
-	connman_bool_t connecting = FALSE;
-	connman_bool_t associating = FALSE;
-#endif
 	struct connman_device *device = user_data;
 
 	DBG("device %p", device);
@@ -126,47 +110,6 @@ static gboolean device_scan_trigger(gpointer user_data)
 		device->scan_timeout = 0;
 		return FALSE;
 	}
-
-#if defined TIZEN_EXT
-	g_hash_table_iter_init(&iter, device->networks);
-
-	while (g_hash_table_iter_next(&iter, &key, &value) == TRUE) {
-		struct connman_network *network = value;
-
-		if (connman_network_get_type(network) != CONNMAN_NETWORK_TYPE_WIFI)
-			continue;
-
-		/*
-		 * If there is a connected or connecting network, don't try to scan.
-		 */
-		connected = connman_network_get_connected(network);
-		connecting = connman_network_get_connecting(network);
-		associating = connman_network_get_associating(network);
-
-		if (device->bgscan_mode == CONNMAN_BGSCAN_MODE_EXPONENTIAL) {
-			if (connected == TRUE) {
-				DBG("network(%s) is connected.", connman_network_get_string(network, "Name"));
-
-				set_next_scan_trigger(device);
-				return TRUE;
-			} else if ((connecting == TRUE) || (associating == TRUE)) {
-				DBG("network(%s) is connecting.", connman_network_get_string(network, "Name"));
-
-				set_next_scan_trigger(device);
-				return TRUE;
-			}
-
-			if (__connman_device_is_no_ref_significant_wifi_profile(device) == TRUE) {
-				DBG("There is no saved profile and no need to scan.");
-
-				set_next_scan_trigger(device);
-				return TRUE;
-			}
-		}
-	}
-
-	set_next_scan_trigger(device);
-#endif
 
 	if (device->driver->scan)
 		device->driver->scan(device);
@@ -182,65 +125,6 @@ static void clear_scan_trigger(struct connman_device *device)
 	}
 }
 
-#if defined TIZEN_EXT
-static void create_scan_trigger(struct connman_device * device)
-{
-	clear_scan_trigger(device);
-
-	if(device->bgscan_mode == CONNMAN_BGSCAN_MODE_PERIODIC)
-		device->scan_interval = SCAN_PERIODIC_DELAY;
-	else if(device->bgscan_mode == CONNMAN_BGSCAN_MODE_EXPONENTIAL)
-		device->scan_interval = SCAN_EXPONENTIAL_MIN;
-	else
-		device->scan_interval = SCAN_DEFAULT_DELAY;
-
-	DBG("interval %d", device->scan_interval);
-
-	device->scan_timeout = g_timeout_add_seconds(device->scan_interval,
-				device_scan_trigger, device);
-}
-
-static void set_next_scan_trigger(struct connman_device * device)
-{
-	clear_scan_trigger(device);
-
-	DBG("bgscan mode (%d) , current interval (%d)", device->bgscan_mode, device->scan_interval);
-
-	if(device->scan_interval <= 0)
-		return;
-
-	guint interval;
-
-	if(device->bgscan_mode == CONNMAN_BGSCAN_MODE_DEFAULT)
-	{
-		if (g_hash_table_size(device->networks) == 0) {
-			if (device->backoff_interval >= device->scan_interval)
-				device->backoff_interval = SCAN_INITIAL_DELAY;
-			interval = device->backoff_interval;
-		} else
-			interval = device->scan_interval;
-
-		device->backoff_interval *= 2;
-		if (device->backoff_interval > device->scan_interval)
-			device->backoff_interval = device->scan_interval;
-	}
-	else if(device->bgscan_mode == CONNMAN_BGSCAN_MODE_EXPONENTIAL)
-	{
-		if(device->scan_interval >= SCAN_EXPONENTIAL_MAX)
-			device->scan_interval = SCAN_EXPONENTIAL_MAX;
-		else
-			device->scan_interval *= 2;
-	}
-
-	interval = device->scan_interval;
-
-	DBG("next interval (%d)", interval);
-
-	device->scan_timeout = g_timeout_add_seconds(interval,
-				device_scan_trigger, device);
-}
-#endif
-
 static void reset_scan_trigger(struct connman_device *device)
 {
 	clear_scan_trigger(device);
@@ -248,13 +132,6 @@ static void reset_scan_trigger(struct connman_device *device)
 	if (device->scan_interval > 0) {
 		guint interval;
 
-#if defined TIZEN_EXT
-		interval = device->scan_interval;
-
-		DBG("interval %d", interval);
-		device->scan_timeout = g_timeout_add_seconds(interval,
-					device_scan_trigger, device);
-#else
 		if (g_hash_table_size(device->networks) == 0) {
 			if (device->backoff_interval >= device->scan_interval)
 				device->backoff_interval = SCAN_INITIAL_DELAY;
@@ -270,7 +147,6 @@ static void reset_scan_trigger(struct connman_device *device)
 		device->backoff_interval *= 2;
 		if (device->backoff_interval > device->scan_interval)
 			device->backoff_interval = device->scan_interval;
-#endif
 	}
 }
 
@@ -712,9 +588,6 @@ struct connman_device *connman_device_create(const char *node,
 	struct connman_device *device;
 	enum connman_service_type service_type;
 	connman_bool_t bg_scan;
-#if defined TIZEN_EXT
-	connman_uint8_t bg_scan_mode;
-#endif
 
 	DBG("node %s type %d", node, type);
 
@@ -727,11 +600,6 @@ struct connman_device *connman_device_create(const char *node,
 	device->refcount = 1;
 
 	bg_scan = connman_setting_get_bool("BackgroundScanning");
-
-#if defined TIZEN_EXT
-	bg_scan_mode = connman_setting_get_int("BackgroundScanningMode");
-	device->cellular_service_enabled = TRUE;
-#endif
 #if defined TIZEN_EXT
 	if (type == CONNMAN_DEVICE_TYPE_WIFI) {
 		/* Load significant_wifi_profile_refcount */
@@ -766,16 +634,7 @@ struct connman_device *connman_device_create(const char *node,
 		break;
 	case CONNMAN_DEVICE_TYPE_WIFI:
 		if (bg_scan == TRUE)
-		{
-#if defined TIZEN_EXT
-			device->bgscan_mode = bg_scan_mode;
-#endif
 			device->scan_interval = 300;
-
-#if defined TIZEN_EXT
-			create_scan_trigger(device);
-#endif
-		}
 		else
 			device->scan_interval = 0;
 		break;
@@ -918,21 +777,6 @@ const char *connman_device_get_ident(struct connman_device *device)
 	return device->ident;
 }
 
-#if defined TIZEN_EXT
-int connman_device_set_cellular_service_enabled(struct connman_device *device, connman_bool_t enabled)
-{
-	if (device == NULL)
-			return 0;
-
-	DBG("device (%p), cellular service enabled (%d)", device, enabled);
-
-	device->cellular_service_enabled = enabled;
-	__connman_notifier_cellular_service_enabled(enabled);
-
-	return 0;
-}
-#endif
-
 /**
  * connman_device_set_powered:
  * @device: device structure
@@ -960,10 +804,6 @@ int connman_device_set_powered(struct connman_device *device,
 
 	if (err < 0 && err != -EINPROGRESS && err != -EALREADY)
 		return err;
-
-#if defined TIZEN_EXT
-	device->cellular_service_enabled =powered;
-#endif
 
 	device->powered = powered;
 	device->powered_pending = powered;
@@ -1025,50 +865,31 @@ int __connman_device_scan(struct connman_device *device)
 		return -ENOLINK;
 
 #if defined TIZEN_EXT
-	/* scan trigger should be started with initial interval */
-	create_scan_trigger(device);
-#else
-	reset_scan_trigger(device);
+	GHashTableIter iter;
+	gpointer key, value;
+
+	g_hash_table_iter_init(&iter, device->networks);
+
+	while (g_hash_table_iter_next(&iter, &key, &value) == TRUE) {
+		struct connman_network *network = value;
+
+		DBG("network type %s", __connman_network_get_type(network));
+		if (connman_network_get_type(network) != CONNMAN_NETWORK_TYPE_WIFI)
+			continue;
+
+		/* If there is a connected or connecting network, don't try to scan. */
+		if (connman_network_get_connecting(network) == TRUE ||
+				connman_network_get_associating(network) == TRUE) {
+			DBG("network(%s) is connecting", connman_network_get_string(network, "Name"));
+			return 0;
+		}
+	}
 #endif
+
+	reset_scan_trigger(device);
 
 	return device->driver->scan(device);
 }
-
-#if defined TIZEN_EXT
-connman_uint8_t __connman_device_get_bgscan_mode()
-{
-	struct connman_device * device = __connman_device_find_device(CONNMAN_SERVICE_TYPE_WIFI);
-
-	if ((device == NULL) || (!device->driver))
-		return -EOPNOTSUPP;
-
-	if (device->powered == FALSE)
-		return -ENOLINK;
-
-	DBG("current bgscan mode : %d", device->bgscan_mode);
-
-	return device->bgscan_mode;
-}
-
-int __connman_device_set_bgscan_mode(connman_uint8_t scanmode)
-{
-	struct connman_device * device = __connman_device_find_device(CONNMAN_SERVICE_TYPE_WIFI);
-
-	if ((device == NULL) || (!device->driver))
-		return -EOPNOTSUPP;
-
-	if (device->powered == FALSE)
-		return -ENOLINK;
-
-	DBG("bgscan mode : %d", scanmode);
-
-	device->bgscan_mode = scanmode;
-
-	create_scan_trigger(device);
-
-	return 0;
-}
-#endif
 
 int __connman_device_enable_persistent(struct connman_device *device)
 {

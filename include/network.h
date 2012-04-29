@@ -103,7 +103,7 @@ int connman_network_set_domain(struct connman_network *network,
 			             const char *domain);
 #if defined TIZEN_EXT
 /*
- * Description: SONET plug-in requires manual PROXY setting function
+ * Description: Telephony plug-in requires manual PROXY setting function
  */
 int connman_network_set_proxy(struct connman_network *network,
 				const char *proxies);
@@ -121,6 +121,8 @@ unsigned int connman_network_get_maxrate(struct connman_network *network);
 int connman_network_set_enc_mode(struct connman_network *network,
 				const char *encryption_mode);
 const char *connman_network_get_enc_mode(struct connman_network *network);
+
+const char *connman_network_get_ifname(struct connman_network *network);
 #endif
 
 int connman_network_set_name(struct connman_network *network,

@@ -498,21 +498,6 @@ static void notify_idle_state(connman_bool_t idle)
 }
 
 #if defined TIZEN_EXT
-void __connman_notifier_cellular_service_enabled(connman_bool_t enabled)
-{
-	GSList *list;
-	DBG("cellular connection available");
-
-	for (list = notifier_list; list; list = list->next) {
-		struct connman_notifier *notifier = list->data;
-
-		if (notifier->cellular_service_enabled)
-			notifier->cellular_service_enabled(enabled);
-	}
-}
-#endif
-
-#if defined TIZEN_EXT
 /*
  * August 22nd, 2011. TIZEN
  *

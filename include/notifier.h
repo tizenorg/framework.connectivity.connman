@@ -49,9 +49,6 @@ struct connman_notifier {
 	void (*service_enabled) (enum connman_service_type type,
 						connman_bool_t enabled);
 	void (*offline_mode) (connman_bool_t enabled);
-#if defined TIZEN_EXT
-	void (*cellular_service_enabled) (connman_bool_t enabled);
-#endif
 	void (*proxy_changed) (struct connman_service *service);
 	void (*service_state_changed) (struct connman_service *service,
 					enum connman_service_state state);

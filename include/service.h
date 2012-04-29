@@ -105,15 +105,6 @@ const char *connman_service_get_proxy_url(struct connman_service *service);
 const char *connman_service_get_proxy_autoconfig(struct connman_service *service);
 
 #if defined TIZEN_EXT
-struct connman_ipconfig* connman_service_get_ipv4config(struct connman_service* service);
-struct connman_network* connman_service_get_network(struct connman_service* service);
-int connman_service_connect(struct connman_service* service);
-int connman_service_disconnect(struct connman_service* service);
-struct connman_service* connman_service_lookup_from_network(struct connman_network * network);
-void connman_service_set_alwayson(struct connman_service *service, connman_bool_t state);
-#endif
-
-#if defined TIZEN_EXT
 /*
  * Description: TIZEN implements system global connection management.
  *              It's only for PDP (cellular) bearer. Wi-Fi is managed by ConnMan automatically.
@@ -121,20 +112,20 @@ void connman_service_set_alwayson(struct connman_service *service, connman_bool_
  */
 
 /*
- * Increase reference count of user-initiated pdp connection
+ * Increase reference count of user-initiated packet data network connection
  */
-void connman_service_user_initiated_pdp_connection_ref(struct connman_service *service);
+void connman_service_user_initiated_pdn_connection_ref(struct connman_service *service);
 
 /*
- * Decrease reference count of user initiated pdp connection and return TRUE if counter is zero.
+ * Decrease reference count of user initiated packet data network connection and return TRUE if counter is zero.
  */
-connman_bool_t connman_service_user_initiated_pdp_connection_unref_and_test(struct connman_service *service);
+connman_bool_t connman_service_user_initiated_pdn_connection_unref_and_test(struct connman_service *service);
 
 /*
- * Test reference count of user initiated pdp connection and return TRUE if counter is zero.
+ * Test reference count of user initiated packet data network connection and return TRUE if counter is zero.
  * No impact to reference count
  */
-connman_bool_t connman_service_is_no_ref_user_initiated_pdp_connection(struct connman_service *service);
+connman_bool_t connman_service_is_no_ref_user_initiated_pdn_connection(struct connman_service *service);
 #endif
 
 #ifdef __cplusplus

@@ -38,9 +38,6 @@ static DBusMessage *get_properties(DBusConnection *conn,
 	DBusMessage *reply;
 	DBusMessageIter array, dict;
 	connman_bool_t offlinemode, sessionmode;
-#if defined TIZEN_EXT
-	connman_uint8_t bgscanmode;
-#endif
 	const char *str;
 
 	DBG("conn %p", conn);
@@ -92,10 +89,7 @@ static DBusMessage *get_properties(DBusConnection *conn,
 	connman_dbus_dict_append_basic(&dict, "SessionMode",
 					DBUS_TYPE_BOOLEAN,
 					&sessionmode);
-#if defined TIZEN_EXT
-	bgscanmode = __connman_device_get_bgscan_mode();
-	connman_dbus_dict_append_basic(&dict, "ScanMode", DBUS_TYPE_BYTE, &bgscanmode);
-#endif	
+
 	connman_dbus_dict_close(&array, &dict);
 
 	return reply;
@@ -154,17 +148,6 @@ static DBusMessage *set_property(DBusConnection *conn,
 			return NULL;
 		}
 
-#if defined TIZEN_EXT
-	} else if (g_str_equal(name, "ScanMode") == TRUE) {
-		connman_uint16_t scanmode;
-
-		dbus_message_iter_get_basic(&value, &scanmode);
-
-		if ((scanmode > CONNMAN_BGSCAN_MODE_EXPONENTIAL) || (scanmode < CONNMAN_BGSCAN_MODE_DEFAULT))
-			return __connman_error_invalid_arguments(msg);
-
-		__connman_device_set_bgscan_mode(scanmode);
-#endif
 	} else
 		return __connman_error_invalid_property(msg);
 

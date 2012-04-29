@@ -18,25 +18,29 @@
 #include <connman/technology.h>
 #include <connman/log.h>
 
-#define SONET_SERVICE				"net.sonet"
+#define PS_DBUS_SERVICE				"com.tcore.ps"
 
-#define SONET_MASTER_INTERFACE		SONET_SERVICE ".master"
-#define SONET_MODEM_INTERFACE		SONET_SERVICE ".modem"
-#define SONET_NETWORK_INTERFACE		SONET_SERVICE ".network"
+#define PS_MASTER_INTERFACE		PS_DBUS_SERVICE ".master"
+#define PS_MODEM_INTERFACE		PS_DBUS_SERVICE ".modem"
+#define PS_SERVICE_INTERFACE		PS_DBUS_SERVICE ".service"
+#define PS_CONTEXT_INTERFACE		PS_DBUS_SERVICE ".context"
 
 //methods
 #define GET_MODEMS				"GetModems"
-#define GET_NETWORKS			"GetNetworks"
-#define ACTIVATE_NETWORK		"Activate"
-#define DEACTIVATE_NETWORK		"Deactivate"
+#define GET_SERVICES			"GetServices"
+#define GET_CONTEXTS			"GetContexts"
+#define ACTIVATE_CONTEXT		"Activate"
+#define DEACTIVATE_CONTEXT		"Deactivate"
 #define GET_PROPERTIES			"GetProperties"
 #define SET_PROPERTY			"SetProperties"
 
 //signals
 #define MODEM_ADDED				"ModemAdded"
 #define MODEM_REMOVED			"ModemRemoved"
-#define NETWORK_ADDED			"NetworkAdded"
-#define NETWORK_REMOVED			"NetworkRemoved"
+#define SERVICE_ADDED			"ServiceAdded"
+#define SERVICE_REMOVED			"ServiceRemoved"
+#define CONTEXT_ADDED			"ContextAdded"
+#define CONTEXT_REMOVED			"ContextRemoved"
 #define PROPERTY_CHANGED		"PropertyChanged"
 
 #define TIMEOUT 40000
@@ -45,24 +49,33 @@
 
 static DBusConnection *connection;
 static GHashTable	*modem_hash;
+static GHashTable	*service_hash;
 static GHashTable	*network_hash;
 
-struct sonet_modem {
+struct telephony_service {
 	char* path;
-	struct connman_device *device;
 
-	char *operator;
-	gboolean powered; //modem registered (if TAPI is not ready)
-	gboolean online; //flight_mode, data_allowed, sim_init
-
-	gboolean sim_init; //sim init
+	gpointer p_modem;
+	char *act;
 	gboolean roaming; //global roaming state
 	gboolean ps_attached; //packet service is available
-
-	gboolean roaming_allowed; //roaming setting
 };
 
-struct sonet_network {
+struct telephony_modem {
+	char* path;
+
+	char *operator;
+	gboolean powered;
+	gboolean sim_init;
+	gboolean flight_mode;
+	gboolean data_allowed;
+	gboolean roaming_allowed;
+
+	struct connman_device *device;
+	struct telephony_service *s_service;
+};
+
+struct telephony_network {
 	char *path;
 	struct connman_network *network;
 
@@ -74,9 +87,10 @@ struct sonet_network {
 };
 
 // function prototype
-static void sonet_connect(DBusConnection *connection, void *user_data);
-static void sonet_disconnect(DBusConnection *connection, void *user_data);
+static void telephony_connect(DBusConnection *connection, void *user_data);
+static void telephony_disconnect(DBusConnection *connection, void *user_data);
 static void __remove_modem(gpointer data);
+static void __remove_service(gpointer data);
 static void __remove_network(gpointer data);
 
 static int __modem_probe(struct connman_device *device);
@@ -97,33 +111,39 @@ static int __dbus_request(const char *path, const char *interface, const char *m
 
 static int __request_get_modems(void);
 static void __response_get_modems(DBusPendingCall *call, void *user_data);
-static int __request_get_networks(const char* path);
-static void __response_get_networks(DBusPendingCall *call, void *user_data);
+static int __request_get_services(const char* path);
+static void __response_get_services(DBusPendingCall *call, void *user_data);
+static int __request_get_contexts(struct telephony_modem* modem);
+static void __response_get_contexts(DBusPendingCall *call, void *user_data);
 static int __request_network_activate(struct connman_network *network);
 static void __response_network_activate(DBusPendingCall *call, void *user_data);
 static int __request_network_deactivate(struct connman_network *network);
 
-// sonet internal function
+// telephony internal function
 static void __add_modem(const char *path, DBusMessageIter *prop);
+static void __add_service(struct telephony_modem* modem, const char *service_path, DBusMessageIter *prop);
 static void __add_connman_device(const char* modem_path, const char* operator);
-static void __remove_connman_device(struct sonet_modem *modem);
+static void __remove_connman_device(struct telephony_modem *modem);
 static void __remove_connman_networks(struct connman_device *device);
-static void __set_device_online(struct sonet_modem *modem, gboolean online);
-static int __check_device_online(const char *path, gboolean online);
+static void __set_device_powered(struct telephony_modem *modem, gboolean powered);
+static int __check_device_powered(const char *path, gboolean online);
 static gboolean __check_network_available(struct connman_network *network);
 static void __create_service(struct connman_network *network);
-static int __add_network(struct connman_device *device, const char *path, DBusMessageIter *prop);
-static gboolean __set_network_ipconfig(struct sonet_network *network, DBusMessageIter *dict);
-static void __set_network_connected(struct sonet_network *network, gboolean connected);
+static int __add_context(struct connman_device *device, const char *path, DBusMessageIter *prop);
+static gboolean __set_network_ipconfig(struct telephony_network *network, DBusMessageIter *dict);
+static void __set_network_connected(struct telephony_network *network, gboolean connected);
 static char *__get_ident(const char *path);
 
 // signal handler
 static gboolean __changed_modem(DBusConnection *connection, DBusMessage *message, void *user_data);
 static gboolean __added_modem(DBusConnection *connection, DBusMessage *message, void *user_data);
 static gboolean __removed_modem(DBusConnection *connection, DBusMessage *message, void *user_data);
-static gboolean __changed_network(DBusConnection *connection, DBusMessage *message, void *user_data);
-static gboolean __added_network(DBusConnection *connection, DBusMessage *message, void *user_data);
-static gboolean __removed_network(DBusConnection *connection, DBusMessage *message, void *user_data);
+static gboolean __changed_service(DBusConnection *connection, DBusMessage *message, void *user_data);
+static gboolean __added_service(DBusConnection *connection, DBusMessage *message, void *user_data);
+static gboolean __removed_service(DBusConnection *connection, DBusMessage *message, void *user_data);
+static gboolean __changed_context(DBusConnection *connection, DBusMessage *message, void *user_data);
+static gboolean __added_context(DBusConnection *connection, DBusMessage *message, void *user_data);
+static gboolean __removed_context(DBusConnection *connection, DBusMessage *message, void *user_data);
 
 // device driver
 static struct connman_device_driver modem_driver = {
@@ -146,16 +166,17 @@ static struct connman_network_driver network_driver = {
 };
 
 // local function
-static void sonet_connect(DBusConnection *connection, void *user_data)
+static void telephony_connect(DBusConnection *connection, void *user_data)
 {
 	DBG("connection %p", connection);
 	modem_hash = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, __remove_modem);
+	service_hash = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, __remove_service);
 	network_hash = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, __remove_network);
 	__request_get_modems();
 	return;
 }
 
-static void sonet_disconnect(DBusConnection *connection, void *user_data)
+static void telephony_disconnect(DBusConnection *connection, void *user_data)
 {
 	DBG("connection %p", connection);
 
@@ -174,7 +195,7 @@ static void sonet_disconnect(DBusConnection *connection, void *user_data)
 
 static void __remove_modem(gpointer data)
 {
-	struct sonet_modem *modem = data;
+	struct telephony_modem *modem = data;
 
 	__remove_connman_device(modem);
 
@@ -183,9 +204,18 @@ static void __remove_modem(gpointer data)
 	g_free(modem);
 }
 
+static void __remove_service(gpointer data)
+{
+	struct telephony_service *service = data;
+
+	g_free(service->path);
+	g_free(service->act);
+	g_free(service);
+}
+
 static void __remove_network(gpointer data)
 {
-	struct sonet_network *info = data;
+	struct telephony_network *info = data;
 	struct connman_device *device;
 
 	device = connman_network_get_device(info->network);
@@ -214,7 +244,7 @@ static int __modem_enable(struct connman_device *device)
 	const char *path = connman_device_get_string(device, "Path");
 	DBG("device %p, path, %s", device, path);
 
-	return __check_device_online(path, TRUE);
+	return __check_device_powered(path, TRUE);
 }
 
 static int __modem_disable(struct connman_device *device)
@@ -222,7 +252,7 @@ static int __modem_disable(struct connman_device *device)
 	const char *path = connman_device_get_string(device, "Path");
 	DBG("device %p, path, %s", device, path);
 
-	return __check_device_online(path, FALSE);
+	return __check_device_powered(path, FALSE);
 }
 
 static int __network_probe(struct connman_network *network)
@@ -234,7 +264,7 @@ static int __network_probe(struct connman_network *network)
 static int __network_connect(struct connman_network *network)
 {
 	struct connman_device *device;
-	struct sonet_modem *modem;
+	struct telephony_modem *modem;
 
 	DBG("network %p", network);
 
@@ -249,11 +279,11 @@ static int __network_connect(struct connman_network *network)
 	if (modem->powered == FALSE)
 		return -ENOLINK;
 
-	if (modem->online == FALSE)
+/*	if (modem->online == FALSE)
 		return -ENOLINK;
 
 	if (modem->roaming_allowed == FALSE && modem->roaming == TRUE)
-		return -ENOLINK;
+		return -ENOLINK;*/
 
 	return __request_network_activate(network);
 }
@@ -283,7 +313,7 @@ static int __dbus_request(const char *path, const char *interface, const char *m
 			DBusPendingCallNotifyFunction notify, void *user_data,
 			DBusFreeFunction free_function, int type, ...)
 {
-	DBG("sonet request");
+	DBG("telephony request");
 
 	DBusMessage *message;
 	DBusPendingCall *call;
@@ -295,7 +325,7 @@ static int __dbus_request(const char *path, const char *interface, const char *m
 	if (path == NULL)
 		return -EINVAL;
 
-	message = dbus_message_new_method_call(SONET_SERVICE, path, interface, method);
+	message = dbus_message_new_method_call(PS_DBUS_SERVICE, path, interface, method);
 	if (message == NULL)
 		return -ENOMEM;
 
@@ -331,7 +361,7 @@ static int __request_get_modems(void)
 {
 	DBG("request get modem");
 	//call connect master
-	return __dbus_request("/", SONET_MASTER_INTERFACE, GET_MODEMS,
+	return __dbus_request("/", PS_MASTER_INTERFACE, GET_MODEMS,
 			__response_get_modems, NULL, NULL, DBUS_TYPE_INVALID);
 }
 
@@ -384,27 +414,94 @@ done:
 	return;
 }
 
-static int __request_get_networks(const char* path)
+static int __request_get_services(const char* path)
 {
-	DBG("request get networks");
-	return __dbus_request(path,SONET_MODEM_INTERFACE,GET_NETWORKS,
-		__response_get_networks, g_strdup(path), g_free, DBUS_TYPE_INVALID);
+	DBG("request get service");
+	return __dbus_request(path,PS_MODEM_INTERFACE,GET_SERVICES,
+			__response_get_services, g_strdup(path), g_free, DBUS_TYPE_INVALID);
 }
 
-static void __response_get_networks(DBusPendingCall *call, void *user_data)
+static void __response_get_services(DBusPendingCall *call, void *user_data)
+{
+	DBusMessage *reply;
+	DBusError error;
+	DBusMessageIter args, dict;
+
+	const char *path = user_data;
+	struct telephony_modem *modem;
+
+	modem = g_hash_table_lookup(modem_hash, path);
+	if (modem == NULL)
+		return;
+	if (modem->device == NULL)
+		return;
+
+	DBG("");
+
+	reply = dbus_pending_call_steal_reply(call);
+
+	dbus_error_init(&error);
+
+	if (dbus_set_error_from_message(&error, reply)) {
+		connman_error("GetServices() %s %s",error.name, error.message);
+		dbus_error_free(&error);
+		goto done;
+	}
+
+	DBG("message signature (%s)", dbus_message_get_signature(reply));
+
+	if (dbus_message_iter_init(reply, &args) == FALSE)
+		goto done;
+
+	dbus_message_iter_recurse(&args, &dict);
+
+	//DBG("message type (%d) dic(%d)", dbus_message_iter_get_arg_type(&dict), DBUS_TYPE_DICT_ENTRY);
+
+	while (dbus_message_iter_get_arg_type(&dict) != DBUS_TYPE_INVALID) {
+		DBusMessageIter entry, property;
+		const char *service_path;
+
+		dbus_message_iter_recurse(&dict, &entry);
+		dbus_message_iter_get_basic(&entry, &service_path);
+		DBG("service path (%s)", service_path);
+
+		dbus_message_iter_next(&entry);
+		dbus_message_iter_recurse(&entry, &property);
+
+		__add_service(modem, service_path,&property);
+
+		dbus_message_iter_next(&dict);
+	}
+
+done:
+	dbus_message_unref(reply);
+	dbus_pending_call_unref(call);
+	return;
+}
+
+static int __request_get_contexts(struct telephony_modem* modem)
+{
+	DBG("request get contexts");
+	return __dbus_request(modem->s_service->path,PS_SERVICE_INTERFACE,GET_CONTEXTS,
+		__response_get_contexts, g_strdup(modem->path), g_free, DBUS_TYPE_INVALID);
+}
+
+static void __response_get_contexts(DBusPendingCall *call, void *user_data)
 {
 	DBusError error;
 	DBusMessage *reply;
 	DBusMessageIter args, dict;
 
 	const char *path = user_data;
-	struct sonet_modem *modem;
+	struct telephony_modem *modem;
 
 	DBG("");
 
 	modem = g_hash_table_lookup(modem_hash, path);
 	if (modem == NULL)
 		return;
+	if (modem->s_service == NULL)
+			return;
 	if (modem->device == NULL)
 		return;
 
@@ -413,7 +510,7 @@ static void __response_get_networks(DBusPendingCall *call, void *user_data)
 	dbus_error_init(&error);
 
 	if (dbus_set_error_from_message(&error, reply)) {
-		connman_error("GetModem() %s %s",error.name, error.message);
+		connman_error("GetContexts() %s %s",error.name, error.message);
 		dbus_error_free(&error);
 		goto done;
 	}
@@ -427,16 +524,16 @@ static void __response_get_networks(DBusPendingCall *call, void *user_data)
 
 	while (dbus_message_iter_get_arg_type(&dict) != DBUS_TYPE_INVALID) {
 		DBusMessageIter entry, property;
-		const char *network_path;
+		const char *context_path;
 
 		dbus_message_iter_recurse(&dict, &entry);
-		dbus_message_iter_get_basic(&entry, &network_path);
-		DBG("network path (%s)", network_path);
+		dbus_message_iter_get_basic(&entry, &context_path);
+		DBG("context path (%s)", context_path);
 
 		dbus_message_iter_next(&entry);
 		dbus_message_iter_recurse(&entry, &property);
 
-		__add_network(modem->device, network_path, &property);
+		__add_context(modem->device, context_path, &property);
 
 		dbus_message_iter_next(&dict);
 	}
@@ -454,7 +551,7 @@ static int __request_network_activate(struct connman_network *network)
 	const char *path = connman_network_get_string(network, "Path");
 	DBG("network %p, path %s", network, path);
 
-	return __dbus_request(path,SONET_NETWORK_INTERFACE,ACTIVATE_NETWORK,
+	return __dbus_request(path,PS_CONTEXT_INTERFACE,ACTIVATE_CONTEXT,
 		__response_network_activate, g_strdup(path), NULL, DBUS_TYPE_INVALID);
 }
 
@@ -465,7 +562,7 @@ static void __response_network_activate(DBusPendingCall *call, void *user_data)
 	DBusError error;
 	DBusMessage *reply;
 
-	struct sonet_network *info;
+	struct telephony_network *info;
 	const char* path = user_data;
 
 	info = g_hash_table_lookup(network_hash, path);
@@ -490,9 +587,6 @@ static void __response_network_activate(DBusPendingCall *call, void *user_data)
 		goto done;
 	}
 
-	if (connman_network_get_index(info->network) >= 0)
-		__set_network_connected(info, TRUE);
-
 done:
 	dbus_message_unref(reply);
 	dbus_pending_call_unref(call);
@@ -506,23 +600,24 @@ static int __request_network_deactivate(struct connman_network *network)
 	const char *path = connman_network_get_string(network, "Path");
 	DBG("network %p, path %s", network, path);
 
-	return __dbus_request(path,SONET_NETWORK_INTERFACE,DEACTIVATE_NETWORK,
+	return __dbus_request(path,PS_CONTEXT_INTERFACE,DEACTIVATE_CONTEXT,
 		NULL, NULL, NULL, DBUS_TYPE_INVALID);
 }
 
 static void __add_modem(const char *path, DBusMessageIter *prop)
 {
-	struct sonet_modem *modem;
+	struct telephony_modem *modem;
 
 	modem = g_hash_table_lookup(modem_hash, path);
 	if (modem != NULL)
 		return;
 
-	modem = (struct sonet_modem *)malloc( sizeof(struct sonet_modem));
-	memset(modem, 0, sizeof(struct sonet_modem));
+	modem = (struct telephony_modem *)malloc( sizeof(struct telephony_modem));
+	memset(modem, 0, sizeof(struct telephony_modem));
 
 	modem->path = g_strdup(path);
 	modem->device = NULL;
+	modem->s_service = NULL;
 
 	g_hash_table_insert(modem_hash, g_strdup(path), modem);
 
@@ -542,41 +637,77 @@ static void __add_modem(const char *path, DBusMessageIter *prop)
 			modem->powered = STRING2BOOL(tmp);
 		} else if (g_str_equal(key, "operator") == TRUE) {
 			modem->operator = g_strdup(tmp);
-		} else if (g_str_equal(key, "roaming") == TRUE) {
-			modem->roaming = STRING2BOOL(tmp);
-		} else if (g_str_equal(key, "roaming_allowed") == TRUE) {
-			modem->roaming_allowed = STRING2BOOL(tmp);
-		} else if (g_str_equal(key, "online") == TRUE) {
-			modem->online = STRING2BOOL(tmp);
 		} else if (g_str_equal(key, "sim_init") == TRUE) {
 			modem->sim_init = STRING2BOOL(tmp);
-		} else if (g_str_equal(key, "ps_attached") == TRUE) {
-			modem->ps_attached = STRING2BOOL(tmp);
+		} else if (g_str_equal(key, "flight_mode") == TRUE) {
+			modem->flight_mode = STRING2BOOL(tmp);
+		} else if (g_str_equal(key, "roaming_allowed") == TRUE) {
+			modem->roaming_allowed = STRING2BOOL(tmp);
+		} else if (g_str_equal(key, "data_allowed") == TRUE) {
+			modem->data_allowed = STRING2BOOL(tmp);
 		}
-
 		dbus_message_iter_next(prop);
 	}
+
+	__add_connman_device(path, modem->operator);
+	__set_device_powered(modem, modem->powered);
 
 	if (modem->powered != TRUE) {
 		DBG("modem is not powered");
 		return;
 	}
 
-	__set_device_online(modem, modem->online);
+	__request_get_services(modem->path);
 
-	if (modem->online != TRUE) {
-		DBG("modem is now off-line. do nothing");
+	return;
+}
+
+static void __add_service(struct telephony_modem* modem, const char *service_path, DBusMessageIter *prop)
+{
+	struct telephony_service *service;
+
+	if (modem->s_service != NULL)
 		return;
+
+	service = (struct telephony_service *)malloc( sizeof(struct telephony_service));
+	memset(service, 0, sizeof(struct telephony_service));
+
+	service->path = g_strdup(service_path);
+	service->p_modem = modem;
+	g_hash_table_insert(service_hash, g_strdup(service_path), service);
+
+	while (dbus_message_iter_get_arg_type(prop) != DBUS_TYPE_INVALID) {
+		DBusMessageIter entry;
+		const char *key, *tmp;
+
+		dbus_message_iter_recurse(prop, &entry);
+		dbus_message_iter_get_basic(&entry, &key);
+
+		dbus_message_iter_next(&entry);
+		dbus_message_iter_get_basic(&entry, &tmp);
+
+		DBG("key (%s) value(%s)", key, tmp);
+
+		if (g_str_equal(key, "roaming") == TRUE) {
+			service->roaming = STRING2BOOL(tmp);
+		} else if (g_str_equal(key, "act") == TRUE) {
+			service->act = g_strdup(tmp);
+		} else if (g_str_equal(key, "ps_attached") == TRUE) {
+			service->ps_attached = STRING2BOOL(tmp);
+		}
+
+		dbus_message_iter_next(prop);
 	}
 
-	__add_connman_device(path, modem->operator);
+	modem->s_service = service;
+	__request_get_contexts(modem);
 
 	return;
 }
 
 static void __add_connman_device(const char* modem_path, const char* operator)
 {
-	struct sonet_modem *modem;
+	struct telephony_modem *modem;
 	struct connman_device *device;
 
 	DBG("path %s operator %s", modem_path, operator);
@@ -616,13 +747,10 @@ static void __add_connman_device(const char* modem_path, const char* operator)
 
 	modem->device = device;
 
-	if (modem->online == TRUE)
-		__request_get_networks(modem_path);
-
 	return;
 }
 
-static void __remove_connman_device(struct sonet_modem *modem)
+static void __remove_connman_device(struct telephony_modem *modem)
 {
 	DBG("modem %p path %s device %p", modem, modem->path, modem->device);
 
@@ -652,7 +780,7 @@ static void __remove_connman_networks(struct connman_device *device)
 	g_hash_table_iter_init(&iter, network_hash);
 
 	while (g_hash_table_iter_next(&iter, &key, &value) == TRUE) {
-		struct sonet_network *info = value;
+		struct telephony_network *info = value;
 
 		if (connman_network_get_device(info->network) != device)
 			continue;
@@ -661,35 +789,34 @@ static void __remove_connman_networks(struct connman_device *device)
 	}
 
 	for (list = info_list; list != NULL; list = list->next) {
-		struct sonet_network *info = list->data;
+		struct telephony_network *info = list->data;
 		connman_device_remove_network(device, info->network);
 	}
 
 	g_slist_free(info_list);
 }
 
-static void __set_device_online(struct sonet_modem *modem, gboolean online)
+static void __set_device_powered(struct telephony_modem *modem, gboolean powered)
 {
-	DBG("set modem(%s) online(%d)", modem->path, online);
-	modem->online = online;
+	DBG("set modem(%s) powered(%d)", modem->path, powered);
 
 	if (modem->device) {
-		connman_device_set_powered(modem->device, online);
+		connman_device_set_powered(modem->device, powered);
 	}
 
 	return;
 }
 
-static int __check_device_online(const char *path, gboolean online)
+static int __check_device_powered(const char *path, gboolean powered)
 {
-	struct sonet_modem *modem = g_hash_table_lookup(modem_hash, path);
+	struct telephony_modem *modem = g_hash_table_lookup(modem_hash, path);
 
 	if (modem == NULL)
 		return -ENODEV;
 
-	DBG("check modem (%s) online (%d)", modem->path, modem->online);
+	DBG("check modem (%s) powered (%d)", modem->path, modem->powered);
 
-	if (modem->online == online)
+	if (modem->powered == powered)
 		return -EALREADY;
 
 	return 0;
@@ -705,14 +832,14 @@ static gboolean __check_network_available(struct connman_network *network)
 	return TRUE;
 }
 
-static int __add_network(struct connman_device *device, const char *path, DBusMessageIter *prop)
+static int __add_context(struct connman_device *device, const char *path, DBusMessageIter *prop)
 {
 	char *ident;
 	gboolean active = FALSE;
 
-	struct sonet_modem *modem = connman_device_get_data(device);
+	struct telephony_modem *modem = connman_device_get_data(device);
 	struct connman_network *network;
-	struct sonet_network *info;
+	struct telephony_network *info;
 
 	DBG("modem %p device %p path %s", modem, device, path);
 
@@ -736,8 +863,8 @@ static int __add_network(struct connman_device *device, const char *path, DBusMe
 	if (network == NULL)
 		return -ENOMEM;
 
-	info = (struct sonet_network *)malloc( sizeof(struct sonet_network));
-	memset(info, 0, sizeof(struct sonet_network));
+	info = (struct telephony_network *)malloc( sizeof(struct telephony_network));
+	memset(info, 0, sizeof(struct telephony_network));
 
 	if (info == NULL) {
 		connman_network_unref(network);
@@ -759,7 +886,7 @@ static int __add_network(struct connman_device *device, const char *path, DBusMe
 
 	connman_network_set_available(network, TRUE);
 	connman_network_set_index(network, -1);
-	connman_network_set_roaming(network, modem->roaming);
+	connman_network_set_roaming(network, modem->s_service->roaming);
 
 	if (connman_device_add_network(device, network) != 0) {
 		g_hash_table_remove(network_hash, path);
@@ -768,7 +895,7 @@ static int __add_network(struct connman_device *device, const char *path, DBusMe
 
 	active = __set_network_ipconfig(info, prop);
 
-	if (active && connman_network_get_connecting(network) == TRUE)
+	if (active && (connman_network_get_connecting(network) || connman_network_get_associating(network)))
 		__set_network_connected(info, active);
 
 	return 0;
@@ -788,7 +915,7 @@ static void __create_service(struct connman_network *network)
 	connman_network_set_group(network, group);
 }
 
-static gboolean __set_network_ipconfig(struct sonet_network *network, DBusMessageIter *dict)
+static gboolean __set_network_ipconfig(struct telephony_network *network, DBusMessageIter *dict)
 {
 	DBG("set network info");
 
@@ -796,6 +923,7 @@ static gboolean __set_network_ipconfig(struct sonet_network *network, DBusMessag
 	char *dev_name=NULL, *proxy_addr=NULL;
 	char *ipv4_addr=NULL, *ipv4_gw=NULL, *ipv4_netmask=NULL, *ipv4_dns1=NULL, *ipv4_dns2=NULL;
 	char *ipv6_addr=NULL, *ipv6_gw=NULL, *ipv6_netmask=NULL, *ipv6_dns1=NULL, *ipv6_dns2=NULL;
+	int index;
 
 	while (dbus_message_iter_get_arg_type(dict) != DBUS_TYPE_INVALID) {
 		DBusMessageIter entry;
@@ -837,6 +965,7 @@ static gboolean __set_network_ipconfig(struct sonet_network *network, DBusMessag
 			dbus_message_iter_get_basic(&entry, &ipv6_dns2);
 		} else if (g_str_equal(key, "active") == TRUE) {
 			dbus_message_iter_get_basic(&entry, &tmp);
+			DBG("active (%s)", tmp);
 			active = STRING2BOOL(tmp);
 		}
 
@@ -844,7 +973,13 @@ static gboolean __set_network_ipconfig(struct sonet_network *network, DBusMessag
 	}
 
 	// interface index set
-	int index = connman_inet_ifindex(dev_name);
+	if (g_str_equal(dev_name ,"")) {
+		const char *ifname = NULL;
+		ifname = connman_network_get_ifname(network->network);
+		index = connman_inet_ifindex(ifname);
+	} else
+		index = connman_inet_ifindex(dev_name);
+
 	DBG("interface %s, index %d", dev_name, index);
 	connman_network_set_index(network->network, index);
 
@@ -873,10 +1008,13 @@ static gboolean __set_network_ipconfig(struct sonet_network *network, DBusMessag
 		connman_network_set_nameservers(network->network, nameservers);
 	}
 
+	if(active)
+		connman_network_set_associating(network->network, TRUE);
+
 	return active;
 }
 
-static void __set_network_connected(struct sonet_network *network, gboolean connected)
+static void __set_network_connected(struct telephony_network *network, gboolean connected)
 {
 	gboolean setip = FALSE;
 
@@ -944,8 +1082,7 @@ static gboolean __changed_modem(DBusConnection *connection, DBusMessage *message
 
 	DBusMessageIter args, dict;
 	const char *path = dbus_message_get_path(message);
-	struct sonet_modem *modem;
-	gboolean pre_online = TRUE, roaming_option = TRUE;
+	struct telephony_modem *modem;
 
 	DBG("modem path %s", path);
 
@@ -980,52 +1117,38 @@ static gboolean __changed_modem(DBusConnection *connection, DBusMessage *message
 			modem->powered = STRING2BOOL(tmp);
 		} else if (g_str_equal(key, "operator") == TRUE) {
 			modem->operator = g_strdup(tmp);
-		} else if (g_str_equal(key, "roaming") == TRUE) {
-			modem->roaming = STRING2BOOL(tmp);
-		} else if (g_str_equal(key, "roaming_allowed") == TRUE) {
-			modem->roaming_allowed = STRING2BOOL(tmp);
-		} else if (g_str_equal(key, "online") == TRUE) {
-			pre_online = modem->online;
-			modem->online = STRING2BOOL(tmp);
 		} else if (g_str_equal(key, "sim_init") == TRUE) {
 			modem->sim_init = STRING2BOOL(tmp);
-		} else if (g_str_equal(key, "ps_attached") == TRUE) {
-			modem->ps_attached = STRING2BOOL(tmp);
+		} else if (g_str_equal(key, "flight_mode") == TRUE) {
+			modem->flight_mode = STRING2BOOL(tmp);
+		} else if (g_str_equal(key, "roaming_allowed") == TRUE) {
+			modem->roaming_allowed = STRING2BOOL(tmp);
+		} else if (g_str_equal(key, "data_allowed") == TRUE) {
+			modem->data_allowed = STRING2BOOL(tmp);
 		}
 
 		dbus_message_iter_next(&dict);
 	}
 
-	if (modem->powered == FALSE) {
-		__remove_connman_device(modem);
+	if (modem->device == NULL)
+		__add_connman_device(path, modem->operator);
+
+	__set_device_powered(modem, modem->powered);
+
+	if (modem->powered != TRUE) {
+		DBG("modem is not powered");
 		return TRUE;
 	}
 
-	if (pre_online != modem->online) {
-		__set_device_online(modem, modem->online);
-
-		if (modem->online != TRUE) {
-			return TRUE;
-		}
-
-		if (modem->device == NULL) {
-			__add_connman_device(path, modem->operator);
-		} else {
-			__request_get_networks(path);
-		}
-
+	if(!modem->s_service){
+		__request_get_services(modem->path);
 		return TRUE;
 	}
 
-	roaming_option &= (!modem->roaming && !modem->roaming_allowed) || modem->roaming_allowed;
-
-	if (modem->ps_attached == TRUE) {
-		connman_device_set_cellular_service_enabled(modem->device, roaming_option);
+	if(modem->flight_mode || !modem->data_allowed){
+		DBG("modem(%s) flight mode(%d) data allowed(%d)", modem->path, modem->flight_mode, modem->data_allowed);
 		return TRUE;
 	}
-
-	if (roaming_option != TRUE)
-		connman_device_set_cellular_service_enabled(modem->device, roaming_option);
 
 	return TRUE;
 }
@@ -1090,13 +1213,141 @@ static gboolean __removed_modem(DBusConnection *connection, DBusMessage *message
 	return TRUE;
 }
 
-static gboolean __changed_network(DBusConnection *connection, DBusMessage *message, void *user_data)
+static gboolean __changed_service(DBusConnection *connection, DBusMessage *message, void *user_data)
+{
+	DBG("service changed signal");
+
+	DBusMessageIter args, dict;
+	const char *service_path = dbus_message_get_path(message);
+	struct telephony_modem *modem;
+	struct telephony_service *s_service;
+	gboolean roaming_option = TRUE;
+
+	DBG("service path %s", service_path);
+
+	s_service = g_hash_table_lookup(service_hash, service_path);
+	if (s_service == NULL) {
+		DBG("service object does not exists");
+		return TRUE;
+	}
+
+	modem = s_service->p_modem;
+	if (modem == NULL) {
+		DBG("modem object does not exists");
+		return TRUE;
+	}
+
+	DBG("message signature (%s)", dbus_message_get_signature(message));
+
+	if (dbus_message_iter_init(message, &args) == FALSE) {
+		DBG("error to read message");
+		return TRUE;
+	}
+
+	dbus_message_iter_recurse(&args, &dict);
+
+	while (dbus_message_iter_get_arg_type(&dict) != DBUS_TYPE_INVALID) {
+		DBusMessageIter entry;
+		const char* key, *tmp;
+
+		dbus_message_iter_recurse(&dict, &entry);
+		dbus_message_iter_get_basic(&entry, &key);
+
+		dbus_message_iter_next(&entry);
+		dbus_message_iter_get_basic(&entry, &tmp);
+
+		DBG("key(%s), value(%s)", key, tmp);
+
+		if (g_str_equal(key, "roaming") == TRUE) {
+			s_service->roaming = STRING2BOOL(tmp);
+		} else if (g_str_equal(key, "act") == TRUE) {
+			s_service->act = g_strdup(tmp);
+		} else if (g_str_equal(key, "ps_attached") == TRUE) {
+			s_service->ps_attached = STRING2BOOL(tmp);
+		}
+
+		dbus_message_iter_next(&dict);
+	}
+
+	roaming_option &= (!s_service->roaming && !modem->roaming_allowed) || modem->roaming_allowed;
+
+	return TRUE;
+}
+
+
+static gboolean __added_service(DBusConnection *connection, DBusMessage *message, void *user_data)
+{
+	DBG("service added signal");
+
+	const char *path = dbus_message_get_path(message);
+	const char *service_path = NULL;
+	DBusMessageIter args, dict, tmp;
+	struct telephony_modem *modem;
+
+	modem = g_hash_table_lookup(modem_hash, path);
+	if (modem == NULL || modem->device == NULL)
+		return TRUE;
+
+	DBG("message signature (%s)", dbus_message_get_signature(message));
+	if (dbus_message_iter_init(message, &args) == FALSE) {
+		DBG("error to read message");
+		return TRUE;
+	}
+
+	dbus_message_iter_recurse(&args, &dict);
+	memcpy(&tmp, &dict, sizeof(struct DBusMessageIter));
+
+	while (dbus_message_iter_get_arg_type(&tmp) != DBUS_TYPE_INVALID) {
+		DBusMessageIter entry;
+		const char *key, *value;
+
+		dbus_message_iter_recurse(&tmp, &entry);
+		dbus_message_iter_get_basic(&entry, &key);
+
+		dbus_message_iter_next(&entry);
+		dbus_message_iter_get_basic(&entry, &value);
+
+		DBG("key (%s) value(%s)", key, value);
+
+		if (g_str_equal(key, "path") == TRUE) {
+			service_path = g_strdup(value);
+		}
+
+		dbus_message_iter_next(&tmp);
+	}
+
+	if (service_path != NULL) {
+		__add_service(modem, service_path, &dict);
+	}
+
+	return TRUE;
+}
+
+static gboolean __removed_service(DBusConnection *connection, DBusMessage *message, void *user_data)
+{
+	DBG("service removed signal");
+
+	DBusMessageIter iter;
+	const char *service_path;
+
+	if (dbus_message_iter_init(message, &iter) == FALSE) {
+		DBG("error to read message");
+		return TRUE;
+	}
+
+	dbus_message_iter_get_basic(&iter, &service_path);
+	g_hash_table_remove(service_hash, service_path);
+
+	return TRUE;
+}
+
+static gboolean __changed_context(DBusConnection *connection, DBusMessage *message, void *user_data)
 {
 	DBG("network changed signal");
 
 	gboolean active = FALSE;
 	const char *path = dbus_message_get_path(message);
-	struct sonet_network *info;
+	struct telephony_network *info;
 	DBusMessageIter args, dict;
 
 	DBG("path %s", path);
@@ -1120,23 +1371,29 @@ static gboolean __changed_network(DBusConnection *connection, DBusMessage *messa
 
 	if (active == FALSE)
 		__set_network_connected(info, active);
-	else if (connman_network_get_connecting(info->network) == TRUE)
+	else if ( (connman_network_get_connecting(info->network) ||
+			connman_network_get_associating(info->network)) )
 		__set_network_connected(info, active);
 
 	return TRUE;
 }
 
-static gboolean __added_network(DBusConnection *connection, DBusMessage *message, void *user_data)
+static gboolean __added_context(DBusConnection *connection, DBusMessage *message, void *user_data)
 {
 	DBG("network added signal");
 
 	DBusMessageIter args, dict, tmp;
 	const char *path = dbus_message_get_path(message);
 	const char *network_path = NULL;
-	struct sonet_modem *modem;
+	struct telephony_service *service = NULL;
+	struct telephony_modem *modem = NULL;
 
-	modem = g_hash_table_lookup(modem_hash, path);
-	if (modem == NULL || modem->device == NULL)
+	service = g_hash_table_lookup(service_hash, path);
+	if (service == NULL || service->p_modem == NULL)
+		return TRUE;
+
+	modem = service->p_modem;
+	if(modem == NULL || modem->device == NULL)
 		return TRUE;
 
 	DBG("message signature (%s)", dbus_message_get_signature(message));
@@ -1168,23 +1425,24 @@ static gboolean __added_network(DBusConnection *connection, DBusMessage *message
 	}
 
 	if (network_path != NULL) {
-		__add_network(modem->device, network_path, &dict);
+		__add_context(modem->device, network_path, &dict);
 	}
 
 	return TRUE;
 }
 
-static gboolean __removed_network(DBusConnection *connection, DBusMessage *message, void *user_data)
+static gboolean __removed_context(DBusConnection *connection, DBusMessage *message, void *user_data)
 {
 	DBG("network removed signal");
 
 	DBusMessageIter iter;
 	const char *path = dbus_message_get_path(message);
 	const char *network_path = NULL;
-	struct sonet_modem *modem;
+	struct telephony_service *service = NULL;
+	struct telephony_modem *modem = NULL;
 
-	modem = g_hash_table_lookup(modem_hash, path);
-	if (modem == NULL || modem->device == NULL)
+	service = g_hash_table_lookup(service_hash, path);
+	if (service == NULL || service->p_modem == NULL)
 		return TRUE;
 
 	if (dbus_message_iter_init(message, &iter) == FALSE) {
@@ -1198,90 +1456,60 @@ static gboolean __removed_network(DBusConnection *connection, DBusMessage *messa
 	return TRUE;
 }
 
-/*
-static void __response_network_deactivate(DBusPendingCall *call, void *user_data)
-{
-	struct sonet_network *network;
-	DBusMessage *reply;
-	DBusError error;
-	DBusMessageIter args, dict;
-
-	DBG("");
-	network = (struct sonet_network*) user_data;
-
-	reply = dbus_pending_call_steal_reply(call);
-
-	dbus_error_init(&error);
-
-	if (dbus_set_error_from_message(&error, reply)) {
-		connman_error("connection deactivate() %s %s",error.name, error.message);
-		dbus_error_free(&error);
-		goto done;
-	}
-
-	DBG("message signature (%s)", dbus_message_get_signature(reply));
-
-	if (dbus_message_iter_init(reply, &args) == FALSE)
-		goto done;
-
-	//extract network path
-	const char* network_path;
-	dbus_message_iter_get_basic(&args, &network_path);
-
-	DBG("network_path is (%s)", network_path);
-
-	//compare the path
-	__clean_network_ip_info(network);
-	__set_connman_connected(network, FALSE);
-
-done:
-	dbus_message_unref(reply);
-	dbus_pending_call_unref(call);
-	return;
-}
-*/
-
-// sonet initialization
+// telephony initialization
 static guint watch;
 static guint modem_watch;
 static guint modem_added_watch;
 static guint modem_removed_watch;
-static guint network_watch;
-static guint network_added_watch;
-static guint network_removed_watch;
+static guint service_watch;
+static guint service_added_watch;
+static guint service_removed_watch;
+static guint context_watch;
+static guint context_added_watch;
+static guint context_removed_watch;
 
-static int sonet_init(void)
+static int telephony_init(void)
 {
-	DBG("sonet plugin");
+	DBG("telephony plugin");
 	int err;
 
 	connection = connman_dbus_get_connection();
 	if (connection == NULL)
 		return -EIO;
 
-	// sonet watch
-	watch = g_dbus_add_service_watch(connection, SONET_SERVICE,	sonet_connect, sonet_disconnect, NULL, NULL);
+	// telephony watch
+	watch = g_dbus_add_service_watch(connection, PS_DBUS_SERVICE,	telephony_connect, telephony_disconnect, NULL, NULL);
 
-	modem_watch = g_dbus_add_signal_watch(connection, NULL, NULL, SONET_MODEM_INTERFACE,
+	modem_watch = g_dbus_add_signal_watch(connection, NULL, NULL, PS_MODEM_INTERFACE,
 						PROPERTY_CHANGED, __changed_modem, NULL, NULL);
 
-	modem_added_watch = g_dbus_add_signal_watch(connection, NULL, NULL, SONET_MASTER_INTERFACE,
+	modem_added_watch = g_dbus_add_signal_watch(connection, NULL, NULL, PS_MASTER_INTERFACE,
 						MODEM_ADDED, __added_modem, NULL, NULL);
 
-	modem_removed_watch = g_dbus_add_signal_watch(connection, NULL, NULL, SONET_MASTER_INTERFACE,
+	modem_removed_watch = g_dbus_add_signal_watch(connection, NULL, NULL, PS_MASTER_INTERFACE,
 						MODEM_REMOVED, __removed_modem, NULL, NULL);
 
-	network_watch = g_dbus_add_signal_watch(connection, NULL, NULL, SONET_NETWORK_INTERFACE,
-						PROPERTY_CHANGED, __changed_network, NULL, NULL);
+	service_watch = g_dbus_add_signal_watch(connection, NULL, NULL, PS_SERVICE_INTERFACE,
+						PROPERTY_CHANGED, __changed_service, NULL, NULL);
 
-	network_added_watch = g_dbus_add_signal_watch(connection, NULL, NULL, SONET_MODEM_INTERFACE,
-						NETWORK_ADDED, __added_network, NULL, NULL);
+	service_added_watch = g_dbus_add_signal_watch(connection, NULL, NULL, PS_MODEM_INTERFACE,
+						SERVICE_ADDED, __added_service, NULL, NULL);
 
-	network_removed_watch = g_dbus_add_signal_watch(connection, NULL, NULL, SONET_MODEM_INTERFACE,
-						NETWORK_REMOVED, __removed_network, NULL, NULL);
+	service_removed_watch = g_dbus_add_signal_watch(connection, NULL, NULL, PS_MODEM_INTERFACE,
+						SERVICE_REMOVED, __removed_service, NULL, NULL);
 
-	if (watch == 0 || modem_watch == 0 || modem_added_watch == 0 || modem_removed_watch == 0 ||
-			network_watch == 0 || network_added_watch == 0 || network_removed_watch == 0) {
+	context_watch = g_dbus_add_signal_watch(connection, NULL, NULL, PS_CONTEXT_INTERFACE,
+						PROPERTY_CHANGED, __changed_context, NULL, NULL);
+
+	context_added_watch = g_dbus_add_signal_watch(connection, NULL, NULL, PS_SERVICE_INTERFACE,
+						CONTEXT_ADDED, __added_context, NULL, NULL);
+
+	context_removed_watch = g_dbus_add_signal_watch(connection, NULL, NULL, PS_SERVICE_INTERFACE,
+						CONTEXT_REMOVED, __removed_context, NULL, NULL);
+
+	if (watch == 0 || modem_watch == 0 || modem_added_watch == 0 || modem_removed_watch == 0
+			|| service_watch == 0 || service_added_watch == 0 || service_removed_watch == 0
+			|| context_watch == 0 || context_added_watch == 0 || context_removed_watch == 0) {
 		err = -EIO;
 		goto remove;
 	}
@@ -1303,25 +1531,31 @@ remove:
 	g_dbus_remove_watch(connection, modem_watch);
 	g_dbus_remove_watch(connection, modem_added_watch);
 	g_dbus_remove_watch(connection, modem_removed_watch);
-	g_dbus_remove_watch(connection, network_watch);
-	g_dbus_remove_watch(connection, network_added_watch);
-	g_dbus_remove_watch(connection, network_removed_watch);
+	g_dbus_remove_watch(connection, service_watch);
+	g_dbus_remove_watch(connection, service_added_watch);
+	g_dbus_remove_watch(connection, service_removed_watch);
+	g_dbus_remove_watch(connection, context_watch);
+	g_dbus_remove_watch(connection, context_added_watch);
+	g_dbus_remove_watch(connection, context_removed_watch);
 
 	dbus_connection_unref(connection);
 	return err;
 }
 
-static void sonet_exit(void)
+static void telephony_exit(void)
 {
 	g_dbus_remove_watch(connection, watch);
 	g_dbus_remove_watch(connection, modem_watch);
 	g_dbus_remove_watch(connection, modem_added_watch);
 	g_dbus_remove_watch(connection, modem_removed_watch);
-	g_dbus_remove_watch(connection, network_watch);
-	g_dbus_remove_watch(connection, network_added_watch);
-	g_dbus_remove_watch(connection, network_removed_watch);
+	g_dbus_remove_watch(connection, service_watch);
+	g_dbus_remove_watch(connection, service_added_watch);
+	g_dbus_remove_watch(connection, service_removed_watch);
+	g_dbus_remove_watch(connection, context_watch);
+	g_dbus_remove_watch(connection, context_added_watch);
+	g_dbus_remove_watch(connection, context_removed_watch);
 
-	sonet_disconnect(connection, NULL);
+	telephony_disconnect(connection, NULL);
 
 	connman_device_driver_unregister(&modem_driver);
 	connman_network_driver_unregister(&network_driver);
@@ -1329,5 +1563,5 @@ static void sonet_exit(void)
 	dbus_connection_unref(connection);
 }
 
-CONNMAN_PLUGIN_DEFINE(sonet, "Samsung OpenSrc Network Framework plugin", VERSION,
-		CONNMAN_PLUGIN_PRIORITY_DEFAULT, sonet_init, sonet_exit)
+CONNMAN_PLUGIN_DEFINE(telephony, "Samsung Telephony Framework plug-in", VERSION,
+		CONNMAN_PLUGIN_PRIORITY_DEFAULT, telephony_init, telephony_exit)

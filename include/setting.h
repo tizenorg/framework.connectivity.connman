@@ -28,9 +28,6 @@ extern "C" {
 
 connman_bool_t connman_setting_get_bool(const char *key);
 
-#if defined TIZEN_EXT
-connman_uint16_t connman_setting_get_int(const char * key);
-#endif
 #ifdef __cplusplus
 }
 #endif

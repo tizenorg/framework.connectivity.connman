@@ -71,7 +71,6 @@ const char *connman_device_get_ident(struct connman_device *device);
 int connman_device_set_powered(struct connman_device *device,
 						connman_bool_t powered);
 #if defined TIZEN_EXT
-int connman_device_set_cellular_service_enabled(struct connman_device *device, connman_bool_t enabled);
 /*
  * Description: It checks significant and effective Wi-Fi profiles which can make an auto-connection.
  * 		It saves power consumption not to scan if there is no valid profile to make an auto-connection.

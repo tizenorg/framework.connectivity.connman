@@ -1,87 +1,79 @@
+#sbs-git:pkgs/c/connman connman 0.77.2
+
 Name:       connman
 Summary:    Connection Manager
-Version:    0.77.2
+Version:    0.77.2_75
 Release:    1
-Group:      System/Networking
-License:    GPLv2
-URL:        http://connman.net/
-Source0:    http://www.kernel.org/pub/linux/network/connman/connman-%{version}.tar.gz
-Patch0:     connman_args.patch
-Requires:   wpa_supplicant >= 0.7.1
-BuildRequires:  pkgconfig(libiptc)
-BuildRequires:  pkgconfig(xtables)
+Group:      System/Network
+License:    GNU General Public License version 2
+URL:        http://connman.net
+Source0:    %{name}-%{version}.tar.gz
 BuildRequires:  pkgconfig(glib-2.0)
 BuildRequires:  pkgconfig(dbus-1)
-BuildRequires:  pkgconfig(libudev) >= 145
-
+BuildRequires:  pkgconfig(xtables)
+BuildRequires:  pkgconfig(libiptc)
 
 %description
 Connection Manager provides a daemon for managing Internet connections
 within embedded devices running the Linux operating system.
 
-
-
-%package devel
-Summary:    Development files for Connection Manager
-Group:      Development/Libraries
-Requires:   %{name} = %{version}-%{release}
-
-%description devel
-connman-devel contains development files for use with connman.
-
-%package test
-Summary:    Test Scripts for Connection Manager  
-Group:      Development/Tools  
-Requires:   %{name} = %{version}-%{release}  
-Requires:   dbus-python  
-Requires:   pygobject2  
-  
-%description test  
-Scripts for testing Connman and its functionality  
-
 %prep
-%setup -q -n %{name}-%{version}
-%patch0 -p1
+%setup -q
+
 
 %build
-./bootstrap
-%configure \
-                --localstatedir=/var \
-%ifarch %ix86
-		--enable-ethernet \
-		--enable-wifi \
-%endif
-                --enable-threads \
-                --enable-sonet \
-                --enable-tizen-ext \
-                --enable-alwayson \
-		--enable-test
+
+./autogen.sh
+
+./configure --prefix=/usr \
+            --localstatedir=/var \
+            --enable-threads \
+            --enable-tizen-ext \
+            --enable-wifi=builtin
+
 
 make %{?jobs:-j%jobs}
 
 %install
+rm -rf %{buildroot}
 %make_install
 
+mkdir -p %{buildroot}/var/lib/connman
+cp resources/var/lib/connman/default.profile %{buildroot}/var/lib/connman/default.profile
+mkdir -p %{buildroot}/usr/share/dbus-1/services
+cp resources/usr/share/dbus-1/services/net.connman.service %{buildroot}/usr/share/dbus-1/services/net.connman.service
+mkdir -p %{buildroot}/usr/etc/connman
+cp src/main.conf %{buildroot}/usr/etc/connman/main.conf
 mkdir -p %{buildroot}/etc/rc.d/init.d
-cp etc/rc.d/init.d/connman %{buildroot}/etc/rc.d/init.d/connman
+cp resources/etc/rc.d/init.d/connman %{buildroot}/etc/rc.d/init.d/connman
+mkdir -p %{buildroot}/etc/rc.d/rc3.d
+ln -s ../init.d/connman %{buildroot}/etc/rc.d/rc3.d/S61connman
+mkdir -p %{buildroot}/etc/rc.d/rc5.d
+ln -s ../init.d/connman %{buildroot}/etc/rc.d/rc5.d/S61connman
+
+rm -rf %{buildroot}/usr/include/
+rm -rf %{buildroot}/usr/lib/pkgconfig/
+rm %{buildroot}/etc/dbus-1/system.d/*.conf
+
+mkdir -p %{buildroot}/usr/etc/dbus-1/system.d/
+cp src/connman.conf %{buildroot}/usr/etc/dbus-1/system.d/
+
 
 %post
+#Resource
+chmod 600 /var/lib/connman/default.profile
 
-ln -sf ../init.d/connman /etc/rc.d/rc3.d/S61connman
-ln -sf ../init.d/connman /etc/rc.d/rc5.d/S61connman
 
 %files
-%doc COPYING
+%defattr(-,root,root,-)
+#%doc AUTHORS COPYING INSTALL ChangeLog NEWS README
 %{_sbindir}/*
-/usr/lib/connman/plugins/*.so
-/etc/rc.d/init.d/connman
-%config %{_sysconfdir}/dbus-1/system.d/*.conf
-
-
-%files devel
-%{_includedir}/%{name}/*.h
-%{_libdir}/pkgconfig/*.pc
-
-%files test  
-%defattr(-,root,root,-)  
-%{_libdir}/%{name}/test/* 
+%{_var}/lib/connman/default.profile
+%{_libdir}/connman/plugins/*.so
+%{_datadir}/dbus-1/services/*
+%{_prefix}/etc/dbus-1/system.d/*
+%{_prefix}/etc/connman/main.conf
+%{_prefix}/etc/dbus-1/system.d/*.conf
+%{_sysconfdir}/rc.d/init.d/connman
+%{_sysconfdir}/rc.d/rc3.d/S61connman
+%{_sysconfdir}/rc.d/rc5.d/S61connman

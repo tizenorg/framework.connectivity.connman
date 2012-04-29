@@ -469,9 +469,9 @@ static void process_newlink(unsigned short type, int index, unsigned flags,
 
 		if (type == ARPHRD_ETHER)
 			read_uevent(interface);
-		
+
 #if defined TIZEN_EXT
-		if(type == ARPHRD_PPP){
+		if (type == ARPHRD_PPP) {
 			interface->service_type = CONNMAN_SERVICE_TYPE_CELLULAR;
 			interface->device_type = CONNMAN_DEVICE_TYPE_CELLULAR;
 		}

@@ -44,7 +44,11 @@ void connman_debug(const char *format, ...)
 struct connman_debug_desc {
 	const char *name;
 	const char *file;
+#if defined TIZEN_EXT
+#define CONNMAN_DEBUG_FLAG_DEFAULT (1)
+#else
 #define CONNMAN_DEBUG_FLAG_DEFAULT (0)
+#endif
 #define CONNMAN_DEBUG_FLAG_PRINT   (1 << 0)
 #define CONNMAN_DEBUG_FLAG_ALIAS   (1 << 1)
 	unsigned int flags;
@@ -69,11 +73,9 @@ struct connman_debug_desc {
 	__attribute__((used, section("__debug"), aligned(8))) = { \
 		.file = __FILE__, .flags = CONNMAN_DEBUG_FLAG_DEFAULT, \
 	}; \
-	connman_debug("%s:%s() " fmt, __FILE__, __FUNCTION__ , ## arg); \
-	/*if (__connman_debug_desc.flags & CONNMAN_DEBUG_FLAG_PRINT) \
+	if (__connman_debug_desc.flags & CONNMAN_DEBUG_FLAG_PRINT) \
 		connman_debug("%s:%s() " fmt, \
 					__FILE__, __FUNCTION__ , ## arg); \
-	*/\
 } while (0)
 
 #ifdef __cplusplus

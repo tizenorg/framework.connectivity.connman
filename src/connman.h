@@ -384,11 +384,6 @@ const char *__connman_device_get_type(struct connman_device *device);
 
 int __connman_device_set_offlinemode(connman_bool_t offlinemode);
 
-#if defined TIZEN_EXT
-connman_uint8_t __connman_device_get_bgscan_mode();
-int __connman_device_set_bgscan_mode(connman_uint8_t scanmode);
-#endif
-
 #include <connman/network.h>
 
 int __connman_network_init(void);
@@ -546,7 +541,7 @@ void __connman_service_set_pac(struct connman_service *service,
 					const char *pac);
 #if defined TIZEN_EXT
 /*
- * Description: SONET plug-in requires manual PROXY setting function
+ * Description: Telephony plug-in requires manual PROXY setting function
  */
 void __connman_service_set_proxy(struct connman_service *service,
 					const char *proxies);
@@ -629,9 +624,6 @@ void __connman_notifier_connect(enum connman_service_type type);
 void __connman_notifier_disconnect(enum connman_service_type type);
 void __connman_notifier_offlinemode(connman_bool_t enabled);
 #if defined TIZEN_EXT
-void __connman_notifier_cellular_service_enabled(connman_bool_t enabled);
-#endif
-#if defined TIZEN_EXT
 void __connman_notifier_scan_completed(connman_bool_t success);
 #endif
 void __connman_notifier_default_changed(struct connman_service *service);
@@ -707,12 +699,3 @@ void __connman_dnsproxy_flush(void);
 int __connman_6to4_probe(struct connman_service *service);
 void __connman_6to4_remove(struct connman_ipconfig *ipconfig);
 int __connman_6to4_check(struct connman_ipconfig *ipconfig);
-
-#if defined TIZEN_EXT
-enum connman_bgscan_mode
-{
-	CONNMAN_BGSCAN_MODE_DEFAULT,
-	CONNMAN_BGSCAN_MODE_PERIODIC,
-	CONNMAN_BGSCAN_MODE_EXPONENTIAL,
-};
-#endif

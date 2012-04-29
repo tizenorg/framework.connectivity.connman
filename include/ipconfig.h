@@ -101,11 +101,6 @@ int connman_ipconfig_set_method(struct connman_ipconfig *ipconfig,
 void __connman_ipconfig_disable_ipv6(struct connman_ipconfig *ipconfig);
 void __connman_ipconfig_enable_ipv6(struct connman_ipconfig *ipconfig);
 
-#if defined TIZEN_EXT
-const char *connman_ipconfig_get_local(struct connman_ipconfig *ipconfig);
-#endif 
-
-
 #ifdef __cplusplus
 }
 #endif

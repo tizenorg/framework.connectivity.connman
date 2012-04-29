@@ -46,14 +46,10 @@
 
 static struct {
 	connman_bool_t bg_scan;
-#if defined TIZEN_EXT
-	connman_uint8_t bg_scan_mode;
-#endif
+	connman_bool_t single_connection;
 } connman_settings  = {
 	.bg_scan = TRUE,
-#if defined TIZEN_EXT
-	.bg_scan_mode = CONNMAN_BGSCAN_MODE_DEFAULT,
-#endif
+	.single_connection = FALSE,
 };
 
 static GKeyFile *load_config(const char *file)
@@ -94,19 +90,13 @@ static void parse_config(GKeyFile *config)
 	if (error == NULL)
 		connman_settings.bg_scan = boolean;
 
-#if defined TIZEN_EXT
-	{
-		unsigned char mode;
+	g_clear_error(&error);
 
-		DBG("-------------bg scan : %d", boolean);
+	boolean = g_key_file_get_boolean(config, "General",
+			"SingleConnection", &error);
+	if (error == NULL)
+		connman_settings.single_connection = boolean;
 
-		mode = g_key_file_get_integer(config, "General", "BackgroundScanningMode", &error);
-		if (error == NULL)
-			connman_settings.bg_scan_mode = mode;
-		
-		DBG("-------------bg scan mode : %d", mode);
-	}
-#endif
 	g_clear_error(&error);
 }
 
@@ -257,18 +247,11 @@ connman_bool_t connman_setting_get_bool(const char *key)
 	if (g_str_equal(key, "BackgroundScanning") == TRUE)
 		return connman_settings.bg_scan;
 
+	if (g_str_equal(key, "SingleConnection") == TRUE)
+		return connman_settings.single_connection;
+
 	return FALSE;
 }
-
-#if defined TIZEN_EXT
-connman_uint16_t connman_setting_get_int(const char * key)
-{
-	if (g_str_equal(key, "BackgroundScanningMode") == TRUE)
-		return connman_settings.bg_scan_mode;
-
-	return 0;
-}
-#endif
 
 int main(int argc, char *argv[])
 {

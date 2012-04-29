@@ -1,3 +1,100 @@
+connman (0.77.2-0slp2+75) unstable; urgency=low
+
+  * Fix a bug which connman can't update MAC address of Wi-Fi
+  * Git: pkgs/c/connman
+  * Tag: connman_0.77.2-0slp2+75
+
+ -- root <jeik01.kim@samsung.com>  Thu, 12 Apr 2012 18:23:04 +0900
+
+connman (0.77.2-0slp2+74) unstable; urgency=low
+
+  * Fix cellular profile add bugs
+  * Git: pkgs/c/connman
+  * Tag: connman_0.77.2-0slp2+74
+
+ -- Jaehyun Kim <jeik01.kim@samsung.com>  Mon, 09 Apr 2012 17:47:31 +0900
+
+connman (0.77.2-0slp2+73) unstable; urgency=low
+
+  * Fix Wi-Fi tethering state bugs
+  * Git: pkgs/c/connman
+  * Tag: connman_0.77.2-0slp2+73
+
+ -- Danny Jeongseok Seo <s.seo@samsung.com>  Mon, 02 Apr 2012 14:14:38 +0900
+
+connman (0.77.2-0slp2+72) unstable; urgency=low
+
+  * Fix default network info update
+  * Git: pkgs/c/connman
+  * Tag: connman_0.77.2-0slp2+72
+
+ -- Danny Jeongseok Seo <s.seo@samsung.com>  Thu, 29 Mar 2012 21:48:36 +0900
+
+connman (0.77.2-0slp2+71) unstable; urgency=low
+
+  * Fix bugs on event handling(flight mode/data allowed/roaming)
+  * Git: pkgs/c/connman
+  * Tag: connman_0.77.2-0slp2+71
+
+ -- Jaehyun Kim <jeik01.kim@samsung.com>  Fri, 23 Mar 2012 19:27:26 +0900
+
+connman (0.77.2-0slp2+70) unstable; urgency=low
+
+  * Enable ConnMan debug log for developers
+  * Git: pkgs/c/connman
+  * Tag: connman_0.77.2-0slp2+70
+
+ -- Danny Jeongseok Seo <s.seo@samsung.com>  Thu, 22 Mar 2012 20:00:15 +0900
+
+connman (0.77.2-0slp2+69) unstable; urgency=low
+
+  * Revise Wi-Fi device scan
+  * If deivce is connecing, do no make scan
+  * Git: pkgs/c/connman
+  * Tag: connman_0.77.2-0slp2+69
+
+ -- Danny Jeongseok Seo <s.seo@samsung.com>  Fri, 16 Mar 2012 17:09:01 +0900
+
+connman (0.77.2-0slp2+68) unstable; urgency=low
+
+  * Fix ConnMan __connman_service_connect_default
+  * Git: pkgs/c/connman
+  * Tag: connman_0.77.2-0slp2+68
+
+ -- Danny Jeongseok Seo <s.seo@samsung.com>  Fri, 16 Mar 2012 16:46:34 +0900
+
+connman (0.77.2-0slp2+67) unstable; urgency=low
+
+  * Revise New Telephony DBus interface name
+  * Git: pkgs/c/connman
+  * Tag: connman_0.77.2-0slp2+67
+
+ -- Danny Jeongseok Seo <s.seo@samsung.com>  Thu, 15 Mar 2012 13:31:17 +0900
+
+connman (0.77.2-0slp2+66) unstable; urgency=low
+
+  * Rename sonet plug-in to telephony plug-in
+  * Git: pkgs/c/connman
+  * Tag: connman_0.77.2-0slp2+66
+
+ -- Danny Jeongseok Seo <s.seo@samsung.com>  Fri, 09 Mar 2012 17:37:20 +0900
+
+connman (0.77.2-0slp2+65) unstable; urgency=low
+
+  * Write log routine without syslogd
+  * Git: pkgs/c/connman
+  * Tag: connman_0.77.2-0slp2+65
+
+ -- Danny Jeongseok Seo <s.seo@samsung.com>  Fri, 09 Mar 2012 16:35:07 +0900
+
+connman (0.77.2-0slp2+64) unstable; urgency=low
+
+  * Revise connection management of Tizen data network to fit New Telepony
+  * Git: pkgs/c/connman
+  * Tag: connman_0.77.2-0slp2+64
+
+ -- Danny Jeongseok Seo <s.seo@samsung.com>  Fri, 09 Mar 2012 11:33:46 +0900
+
 connman (0.77.2-0slp2+63) unstable; urgency=low
 
   * Change sonet's dbus service name
