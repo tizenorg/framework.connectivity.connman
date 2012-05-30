@@ -8,6 +8,7 @@ Group:      System/Network
 License:    GNU General Public License version 2
 URL:        http://connman.net
 Source0:    %{name}-%{version}.tar.gz
+Source1001: packaging/connman.manifest 
 BuildRequires:  pkgconfig(glib-2.0)
 BuildRequires:  pkgconfig(dbus-1)
 BuildRequires:  pkgconfig(xtables)
@@ -22,6 +23,7 @@ within embedded devices running the Linux operating system.
 
 
 %build
+cp %{SOURCE1001} .
 
 ./autogen.sh
 
@@ -65,6 +67,7 @@ chmod 600 /var/lib/connman/settings
 
 
 %files
+%manifest connman.manifest
 %defattr(-,root,root,-)
 #%doc AUTHORS COPYING INSTALL ChangeLog NEWS README
 %{_sbindir}/*
