@@ -1812,12 +1812,13 @@ static int __connman_service_dbus_update_default_info(int type, ...)
 static connman_bool_t __connman_service_is_internet_profile(
 		struct connman_service *cellular)
 {
+#define CONNMAN_CELLULAR_SERVICE_PROFILE_PREFIX	CONNMAN_PATH "/service/cellular_"
 	DBG("Service path: %s", cellular->path);
 
 	const char internet_suffix[] = "_1";
 	char *suffix = NULL;
 
-	if (strstr(cellular->path, "cellular_") != NULL) {
+	if (g_str_has_prefix(cellular->path, CONNMAN_CELLULAR_SERVICE_PROFILE_PREFIX) == TRUE) {
 		suffix = strrchr(cellular->path, '_');
 		if (strcmp(suffix, internet_suffix) == 0)
 			return TRUE;

@@ -165,6 +165,22 @@ static struct connman_network_driver network_driver = {
 	.disconnect	= __network_disconnect,
 };
 
+static int tech_probe(struct connman_technology *technology)
+{
+	return 0;
+}
+
+static void tech_remove(struct connman_technology *technology)
+{
+}
+
+static struct connman_technology_driver tech_driver = {
+	.name		= "cellular",
+	.type		= CONNMAN_SERVICE_TYPE_CELLULAR,
+	.probe		= tech_probe,
+	.remove		= tech_remove,
+};
+
 // local function
 static void telephony_connect(DBusConnection *connection, void *user_data)
 {
@@ -741,6 +757,7 @@ static void __add_connman_device(const char* modem_path, const char* operator)
 	connman_device_set_data(device, modem);
 
 	if (connman_device_register(device) < 0) {
+		connman_error("Failed to register cellular device");
 		connman_device_unref(device);
 		return;
 	}
@@ -1520,6 +1537,13 @@ static int telephony_init(void)
 
 	err = connman_device_driver_register(&modem_driver);
 	if (err < 0) {
+		connman_network_driver_unregister(&network_driver);
+		goto remove;
+	}
+
+	err = connman_technology_driver_register(&tech_driver);
+	if (err < 0) {
+		connman_device_driver_unregister(&modem_driver);
 		connman_network_driver_unregister(&network_driver);
 		goto remove;
 	}

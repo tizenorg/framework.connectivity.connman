@@ -12,7 +12,7 @@ Enable=false
 Enable=false
 
 [3G]
-Enable=false
+Enable=true
 
 [WiMAX]
 Enable=false

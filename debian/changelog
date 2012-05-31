@@ -1,3 +1,11 @@
+connman (0.78.4-0slp2+78) unstable; urgency=low
+
+  * Fix telephony technology driver
+  * Git: slp/pkgs/c/connman
+  * Tag: connman_0.78.4-0slp2+78
+
+ -- Danny Jeongseok Seo <s.seo@samsung.com>  Wed, 09 May 2012 17:56:57 +0900
+
 connman (0.78.4-0slp2+77) unstable; urgency=low
 
   * Upgrade ConnMan-stable 0.78.4

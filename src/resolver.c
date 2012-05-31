@@ -125,7 +125,7 @@ static int resolvfile_export(void)
 #if defined TIZEN_EXT
 /*
  * Description: /etc path is read-only in SLP
- *              /opt/etc/resolve.conf rather than /etc/resolve.conf
+ *              /opt/etc/resolv.conf rather than /etc/resolv.conf
  */
 	fd = open("/opt/etc/resolv.conf", O_RDWR | O_CREAT | O_CLOEXEC,
 					S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
