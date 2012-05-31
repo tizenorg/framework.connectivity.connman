@@ -1,2 +1,21 @@
 #!/bin/sh
-/usr/sbin/connmand -W wext &
+HARDWARE_MODEL=`grep Hardware /proc/cpuinfo | awk "{print \\$3}"`
+/bin/echo "Hardware Model=${HARDWARE_MODEL}"
+
+case $HARDWARE_MODEL in
+		"SLP_PQ")	/bin/echo "This is PQ"
+			/usr/sbin/connmand -W nl80211 &
+		;;
+		"U1SLP" | "U1HD")	/bin/echo "This is U1SLP"
+			/usr/sbin/connmand -W wext &
+		;;
+		"SLP7_C210")	/bin/echo "This is C210"
+			/usr/sbin/connmand -W wext &
+		;;
+		"SLP10_C210")
+			/usr/sbin/connmand -W wext &
+		;;
+		*)
+			/usr/sbin/connmand -W nl80211 &
+		;;
+esac

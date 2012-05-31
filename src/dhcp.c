@@ -341,6 +341,9 @@ static void ipv4ll_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 
 	DBG("IPV4LL available");
 
+#if defined TIZEN_EXT
+	dhcp_invalidate(dhcp, TRUE);
+#else
 	service = __connman_service_lookup_from_network(dhcp->network);
 	if (service == NULL)
 		return;
@@ -363,6 +366,7 @@ static void ipv4ll_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 
 	g_free(address);
 	g_free(netmask);
+#endif
 }
 
 static void dhcp_debug(const char *str, void *data)

@@ -1,3 +1,11 @@
+connman (0.77.2-0slp2+76) unstable; urgency=low
+
+  * Update ConnMan init script for Android suplicant
+  * Git: slp/pkgs/c/connman
+  * Tag: connman_0.77.2-0slp2+76
+
+ -- Danny Jeongseok Seo <s.seo@samsung.com>  Tue, 24 Apr 2012 20:28:32 +0900
+
 connman (0.77.2-0slp2+75) unstable; urgency=low
 
   * Fix a bug which connman can't update MAC address of Wi-Fi
