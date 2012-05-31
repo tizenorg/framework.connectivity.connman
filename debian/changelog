@@ -49,7 +49,7 @@ connman (0.77.2-0slp2+76) unstable; urgency=low
 connman (0.77.2-0slp2+75) unstable; urgency=low
 
   * Fix a bug which connman can't update MAC address of Wi-Fi
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+75
 
  -- root <jeik01.kim@samsung.com>  Thu, 12 Apr 2012 18:23:04 +0900
@@ -57,7 +57,7 @@ connman (0.77.2-0slp2+75) unstable; urgency=low
 connman (0.77.2-0slp2+74) unstable; urgency=low
 
   * Fix cellular profile add bugs
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+74
 
  -- Jaehyun Kim <jeik01.kim@samsung.com>  Mon, 09 Apr 2012 17:47:31 +0900
@@ -65,7 +65,7 @@ connman (0.77.2-0slp2+74) unstable; urgency=low
 connman (0.77.2-0slp2+73) unstable; urgency=low
 
   * Fix Wi-Fi tethering state bugs
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+73
 
  -- Danny Jeongseok Seo <s.seo@samsung.com>  Mon, 02 Apr 2012 14:14:38 +0900
@@ -73,7 +73,7 @@ connman (0.77.2-0slp2+73) unstable; urgency=low
 connman (0.77.2-0slp2+72) unstable; urgency=low
 
   * Fix default network info update
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+72
 
  -- Danny Jeongseok Seo <s.seo@samsung.com>  Thu, 29 Mar 2012 21:48:36 +0900
@@ -81,7 +81,7 @@ connman (0.77.2-0slp2+72) unstable; urgency=low
 connman (0.77.2-0slp2+71) unstable; urgency=low
 
   * Fix bugs on event handling(flight mode/data allowed/roaming)
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+71
 
  -- Jaehyun Kim <jeik01.kim@samsung.com>  Fri, 23 Mar 2012 19:27:26 +0900
@@ -89,7 +89,7 @@ connman (0.77.2-0slp2+71) unstable; urgency=low
 connman (0.77.2-0slp2+70) unstable; urgency=low
 
   * Enable ConnMan debug log for developers
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+70
 
  -- Danny Jeongseok Seo <s.seo@samsung.com>  Thu, 22 Mar 2012 20:00:15 +0900
@@ -98,7 +98,7 @@ connman (0.77.2-0slp2+69) unstable; urgency=low
 
   * Revise Wi-Fi device scan
   * If deivce is connecing, do no make scan
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+69
 
  -- Danny Jeongseok Seo <s.seo@samsung.com>  Fri, 16 Mar 2012 17:09:01 +0900
@@ -106,7 +106,7 @@ connman (0.77.2-0slp2+69) unstable; urgency=low
 connman (0.77.2-0slp2+68) unstable; urgency=low
 
   * Fix ConnMan __connman_service_connect_default
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+68
 
  -- Danny Jeongseok Seo <s.seo@samsung.com>  Fri, 16 Mar 2012 16:46:34 +0900
@@ -114,7 +114,7 @@ connman (0.77.2-0slp2+68) unstable; urgency=low
 connman (0.77.2-0slp2+67) unstable; urgency=low
 
   * Revise New Telephony DBus interface name
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+67
 
  -- Danny Jeongseok Seo <s.seo@samsung.com>  Thu, 15 Mar 2012 13:31:17 +0900
@@ -122,7 +122,7 @@ connman (0.77.2-0slp2+67) unstable; urgency=low
 connman (0.77.2-0slp2+66) unstable; urgency=low
 
   * Rename sonet plug-in to telephony plug-in
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+66
 
  -- Danny Jeongseok Seo <s.seo@samsung.com>  Fri, 09 Mar 2012 17:37:20 +0900
@@ -130,7 +130,7 @@ connman (0.77.2-0slp2+66) unstable; urgency=low
 connman (0.77.2-0slp2+65) unstable; urgency=low
 
   * Write log routine without syslogd
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+65
 
  -- Danny Jeongseok Seo <s.seo@samsung.com>  Fri, 09 Mar 2012 16:35:07 +0900
@@ -138,7 +138,7 @@ connman (0.77.2-0slp2+65) unstable; urgency=low
 connman (0.77.2-0slp2+64) unstable; urgency=low
 
   * Revise connection management of Tizen data network to fit New Telepony
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+64
 
  -- Danny Jeongseok Seo <s.seo@samsung.com>  Fri, 09 Mar 2012 11:33:46 +0900
@@ -146,7 +146,7 @@ connman (0.77.2-0slp2+64) unstable; urgency=low
 connman (0.77.2-0slp2+63) unstable; urgency=low
 
   * Change sonet's dbus service name
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+63
 
  -- Sunkey Lee <yuvjjang.lee@samsung.com>  Thu, 09 Feb 2012 10:36:51 +0900
@@ -155,7 +155,7 @@ connman (0.77.2-0slp2+62) unstable; urgency=low
 
   * Add mixed wifi encryption mode to service interface
   * Lookup a matched service using essid and update it immediately when Manager.ProvisionService is invoked
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+62
 
  -- Jaehyun Kim <jeik01.kim@samsung.com>  Thu, 02 Feb 2012 20:00:10 +0900
@@ -163,7 +163,7 @@ connman (0.77.2-0slp2+62) unstable; urgency=low
 connman (0.77.2-0slp2+61) unstable; urgency=low
 
   * Add a propertiy(wifi encryption mode) to service interface
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+61
 
  -- Jaehyun Kim <jeik01.kim@samsung.com>  Wed, 01 Feb 2012 16:42:26 +0900
@@ -171,7 +171,7 @@ connman (0.77.2-0slp2+61) unstable; urgency=low
 connman (0.77.2-0slp2+60) unstable; urgency=low
 
   * Fix wifi disconnect callback bug
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+60
 
  -- Sunkey Lee <yuvjjang.lee@samsung.com>  Tue, 31 Jan 2012 16:20:46 +0900
@@ -179,7 +179,7 @@ connman (0.77.2-0slp2+60) unstable; urgency=low
 connman (0.77.2-0slp2+59) unstable; urgency=low
 
   * Enable loopback plugin
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+59
 
  -- Sunkey Lee <yuvjjang.lee@samsung.com>  Wed, 25 Jan 2012 14:29:57 +0900
@@ -188,7 +188,7 @@ connman (0.77.2-0slp2+58) unstable; urgency=low
 
   * Modify the way to set dbus access authority
   * According to security plicy, change to use ID from string
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+58
 
  -- Sanghoon Cho <sanghoon80.cho@samsung.com>  Tue, 17 Jan 2012 17:13:02 +0900
@@ -196,7 +196,7 @@ connman (0.77.2-0slp2+58) unstable; urgency=low
 connman (0.77.2-0slp2+57) unstable; urgency=low
 
   * Fix a disconnect callback crash
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+57
 
  -- Sunkey Lee <yuvjjang.lee@samsung.com>  Thu, 12 Jan 2012 21:50:24 +0900
@@ -205,7 +205,7 @@ connman (0.77.2-0slp2+56) unstable; urgency=low
 
   * Fix a bug
   * The WPS flag("UseWPS") is not cleared when cancel the wps connection
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+56
 
  -- Sanghoon Cho <sanghoon80.cho@samsung.com>  Thu, 12 Jan 2012 20:36:07 +0900
@@ -213,7 +213,7 @@ connman (0.77.2-0slp2+56) unstable; urgency=low
 connman (0.77.2-0slp2+55) unstable; urgency=low
 
   * Release connman_0.77.2-0slp2+55
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+55
 
  -- Jaehyun Kim <jeik01.kim@samsung.com>  Thu, 12 Jan 2012 11:20:49 +0900
@@ -221,15 +221,15 @@ connman (0.77.2-0slp2+55) unstable; urgency=low
 connman (0.77.2-0slp2+54) unstable; urgency=low
 
   * Release connman_0.77.2-0slp2+54
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+54
 
- -- Sunkey Lee <yuvjjang.lee@samsung.com>  Thu, 22 Dec 2011 16:52:05 +0900
+ -- Sunkey Lee <yuvjjang.lee@samsung.com>  Thu, 22 Dec 2011 17:07:43 +0900
 
 connman (0.77.2-0slp2+53) unstable; urgency=low
 
   * Release connman_0.77.2-0slp2+53
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+53
 
  -- DongHoo Park <donghoo.park@samsung.com>  Fri, 09 Dec 2011 20:03:37 +0900
@@ -237,7 +237,7 @@ connman (0.77.2-0slp2+53) unstable; urgency=low
 connman (0.77.2-0slp2+52) unstable; urgency=low
 
   * Clear service->pending though connection is stopped before completed
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+52
 
  -- Misun Kim <ms0123.kim@samsung.com>  Wed, 07 Dec 2011 18:52:24 +0900
@@ -245,7 +245,7 @@ connman (0.77.2-0slp2+52) unstable; urgency=low
 connman (0.77.2-0slp2+51) unstable; urgency=low
 
   * Fix a bug which service's state doesn't recover from associating state
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+51
 
  -- Sunkey Lee <yuvjjang.lee@samsung.com>  Wed, 07 Dec 2011 11:01:32 +0900
@@ -253,7 +253,7 @@ connman (0.77.2-0slp2+51) unstable; urgency=low
 connman (0.77.2-0slp2+50) unstable; urgency=low
 
   * Release connman_0.77.2-0slp2+50
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+50
 
  -- Jeongseok Seo <s.seo@samsung.com>  Mon, 05 Dec 2011 23:22:06 +0900
@@ -261,7 +261,7 @@ connman (0.77.2-0slp2+50) unstable; urgency=low
 connman (0.77.2-0slp2+49) unstable; urgency=low
 
   * Release connman_0.77.2-0slp2+49
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+49
 
  -- Jeongseok Seo <s.seo@samsung.com>  Sat, 03 Dec 2011 12:04:44 +0900
@@ -269,7 +269,7 @@ connman (0.77.2-0slp2+49) unstable; urgency=low
 connman (0.77.2-0slp2+48) unstable; urgency=low
 
   * Delete dev package of connman
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+48
 
  -- Howon Jung <howon.jung@samsung.com>  Tue, 29 Nov 2011 14:54:53 +0900
@@ -277,7 +277,7 @@ connman (0.77.2-0slp2+48) unstable; urgency=low
 connman (0.77.2-0slp2+47) unstable; urgency=low
 
   * Create new key-value file when there is no default one
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+47
 
  -- Jeongseok Seo <s.seo@samsung.com>  Mon, 28 Nov 2011 21:34:28 +0900
@@ -285,7 +285,7 @@ connman (0.77.2-0slp2+47) unstable; urgency=low
 connman (0.77.2-0slp2+46) unstable; urgency=low
 
   * Fix the bug which is not able to create modem instance when sonet plugin receives the modem_added dbus-signal
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+46
 
  -- DongHoo Park <donghoo.park@samsung.com>  Thu, 24 Nov 2011 12:57:35 +0900
@@ -293,7 +293,7 @@ connman (0.77.2-0slp2+46) unstable; urgency=low
 connman (0.77.2-0slp2+45) unstable; urgency=low
 
   * Add reference count and scan decision scheme to control Wi-Fi scan for saving power
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+45
 
  -- Jeongseok Seo <s.seo@samsung.com>  Mon, 21 Nov 2011 14:59:28 +0900
@@ -301,7 +301,7 @@ connman (0.77.2-0slp2+45) unstable; urgency=low
 connman (0.77.2-0slp2+44) unstable; urgency=low
 
   * plugin/alwayson.c: Fix crash, that is loosing related service instance when timer is called back
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+44
 
  -- DongHoo Park <donghoo.park@samsung.com>  Tue, 22 Nov 2011 17:12:02 +0900
@@ -309,7 +309,7 @@ connman (0.77.2-0slp2+44) unstable; urgency=low
 connman (0.77.2-0slp2+43) unstable; urgency=low
 
   * src/device.c: Fix the connman crash when the cellular_service_enabled variable is set before creating device instance
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+43
 
  -- DongHoo Park <donghoo.park@samsung.com>  Tue, 22 Nov 2011 13:48:31 +0900
@@ -317,7 +317,7 @@ connman (0.77.2-0slp2+43) unstable; urgency=low
 connman (0.77.2-0slp2+42) unstable; urgency=low
 
   * src/service.c: Patch a valid DBUS reply of synchronous service_disconnect instead of NULL reply
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+42
 
  -- DongHoo Park <donghoo.park@samsung.com>  Mon, 21 Nov 2011 19:57:04 +0900
@@ -325,7 +325,7 @@ connman (0.77.2-0slp2+42) unstable; urgency=low
 connman (0.77.2-0slp2+41) unstable; urgency=low
 
   * plugin/sonet.c: Change the action of IP method type setting
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+41
 
  -- DongHoo Park <donghoo.park@samsung.com>  Fri, 18 Nov 2011 16:38:06 +0900
@@ -333,7 +333,7 @@ connman (0.77.2-0slp2+41) unstable; urgency=low
 connman (0.77.2-0slp2+40) unstable; urgency=low
 
   * Unnecessary sigaction and backtrace of connmand
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+40
 
  -- Jeongseok Seo <s.seo@samsung.com>  Wed, 16 Nov 2011 21:57:43 +0900
@@ -341,7 +341,7 @@ connman (0.77.2-0slp2+40) unstable; urgency=low
 connman (0.77.2-0slp2+39) unstable; urgency=low
 
   * fix the bug which is wrong conditional statement in sonet plug-in
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+39
 
  -- DongHoo Park <donghoo.park@samsung.com>  Wed, 16 Nov 2011 20:49:33 +0900
@@ -349,7 +349,7 @@ connman (0.77.2-0slp2+39) unstable; urgency=low
 connman (0.77.2-0slp2+38) unstable; urgency=low
 
   * not to create ip_config structure when ipv6 address is not available and remove unnecessary patch
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+38
 
  -- DongHoo Park <donghoo.park@samsung.com>  Wed, 16 Nov 2011 14:28:37 +0900
@@ -357,7 +357,7 @@ connman (0.77.2-0slp2+38) unstable; urgency=low
 connman (0.77.2-0slp2+37) unstable; urgency=low
 
   * fix to set default routing table, not to retey in no-link case, dbus crash
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+37
 
  -- DongHoo Park <donghoo.park@samsung.com>  Mon, 14 Nov 2011 18:18:14 +0900
@@ -365,7 +365,7 @@ connman (0.77.2-0slp2+37) unstable; urgency=low
 connman (0.77.2-0slp2+36) unstable; urgency=low
 
   * change connection retry logic
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+36
 
  -- DongHoo Park <donghoo.park@samsung.com>  Fri, 11 Nov 2011 14:25:52 +0900
@@ -374,7 +374,7 @@ connman (0.77.2-0slp2+35) unstable; urgency=low
 
   * connman_dbus_service_property_changed_with_error_cause can get root causes of service state failure
     without ConnMan agent
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+35
 
  -- Jeongseok Seo <s.seo@samsung.com>  Fri, 04 Nov 2011 18:16:33 +0900
@@ -382,7 +382,7 @@ connman (0.77.2-0slp2+35) unstable; urgency=low
 connman (0.77.2-0slp2+34) unstable; urgency=low
 
   * Fix minor warnings and prevent bugs
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+34
 
  -- Jeongseok Seo <s.seo@samsung.com>  Fri, 04 Nov 2011 16:53:44 +0900
@@ -390,7 +390,7 @@ connman (0.77.2-0slp2+34) unstable; urgency=low
 connman (0.77.2-0slp2+33) unstable; urgency=low
 
   * fix ther return value of timeout function
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+33
 
  -- DongHoo Park <donghoo.park@samsung.com>  Thu, 03 Nov 2011 14:31:40 +0900
@@ -398,7 +398,7 @@ connman (0.77.2-0slp2+33) unstable; urgency=low
 connman (0.77.2-0slp2+32) unstable; urgency=low
 
   * update sonet plug-in
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+32
 
  -- DongHoo Park <donghoo.park@samsung.com>  Thu, 27 Oct 2011 08:26:59 +0900
@@ -406,7 +406,7 @@ connman (0.77.2-0slp2+32) unstable; urgency=low
 connman (0.77.2-0slp2+31) unstable; urgency=low
 
   * __connman_service_lookup_from_index() returns incorrect service pointer
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+31
 
  -- Misun Kim <ms0123.kim@samsung.com>  Mon, 17 Oct 2011 21:08:37 +0900
@@ -414,7 +414,7 @@ connman (0.77.2-0slp2+31) unstable; urgency=low
 connman (0.77.2-0slp2+30) unstable; urgency=low
 
   * don't try auto connection and scan immediately when the service is changed to IDLE state
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+30
 
  -- Misun Kim <ms0123.kim@samsung.com>  Fri, 14 Oct 2011 15:51:23 +0900
@@ -422,7 +422,7 @@ connman (0.77.2-0slp2+30) unstable; urgency=low
 connman (0.77.2-0slp2+29) unstable; urgency=low
 
   * Fix auto_connect failure after remove_service (forgot Wi-Fi profile)
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+29
 
  -- Jeongseok Seo <s.seo@samsung.com>  Wed, 12 Oct 2011 13:05:55 +0900
@@ -431,7 +431,7 @@ connman (0.77.2-0slp2+28) unstable; urgency=low
 
   * Fix auto_connect problem, when device->connections remains it is not triggered
   * device: clear device->connections and auto_connect checks device state, not device->connections
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+28
 
  -- Jeongseok Seo <s.seo@samsung.com>  Wed, 05 Oct 2011 13:18:56 +0900
@@ -439,7 +439,7 @@ connman (0.77.2-0slp2+28) unstable; urgency=low
 connman (0.77.2-0slp2+27) unstable; urgency=low
 
   * fix network enable signal handler problem
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+27
 
  -- DongHoo Park <donghoo.park@samsung.com>  Tue, 27 Sep 2011 20:17:09 +0900
@@ -447,7 +447,7 @@ connman (0.77.2-0slp2+27) unstable; urgency=low
 connman (0.77.2-0slp2+26) unstable; urgency=low
 
   * ConnMan doesn't care about cellular for auto connecting
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+26
 
  -- Misun Kim <ms0123.kim@samsung.com>  Tue, 27 Sep 2011 11:59:29 +0900
@@ -455,7 +455,7 @@ connman (0.77.2-0slp2+26) unstable; urgency=low
 connman (0.77.2-0slp2+25) unstable; urgency=low
 
   * Remove libnetfilter-queue-dev dependency
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+25
 
  -- JaeHyun Kim <jeik01.kim@samsung.com>  Tue, 27 Sep 2011 10:32:13 +0900
@@ -463,7 +463,7 @@ connman (0.77.2-0slp2+25) unstable; urgency=low
 connman (0.77.2-0slp2+24) unstable; urgency=low
 
   * fix error code num (ISCONN)
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+24
 
  -- DongHoo Park <donghoo.park@samsung.com>  Mon, 26 Sep 2011 20:50:47 +0900
@@ -471,7 +471,7 @@ connman (0.77.2-0slp2+24) unstable; urgency=low
 connman (0.77.2-0slp2+23) unstable; urgency=low
 
   * fix MMS (3g connection) problem
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+23
 
  -- DongHoo Park <donghoo.park@samsung.com>  Mon, 26 Sep 2011 16:07:00 +0900
@@ -481,7 +481,7 @@ connman (0.77.2-0slp2+22) unstable; urgency=low
   * Fix pdp activation failure recovery at the very begining
   * Fix retry timer (unlimited loop)
   * Fix MMS, WAP auto join problem
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+22
 
  -- Jeongseok Seo <s.seo@samsung.com>  Thu, 22 Sep 2011 21:58:44 +0900
@@ -489,7 +489,7 @@ connman (0.77.2-0slp2+22) unstable; urgency=low
 connman (0.77.2-0slp2+21) unstable; urgency=low
 
   * check connected service type / reorder service list
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+21
 
  -- Misun Kim <ms0123.kim@samsung.com>  Thu, 22 Sep 2011 14:35:03 +0900
@@ -498,7 +498,7 @@ connman (0.77.2-0slp2+20) unstable; urgency=low
 
   * Init script
   * Arrange SEC_EXT tag
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+20
 
  -- Jeongseok Seo <s.seo@samsung.com>  Wed, 21 Sep 2011 22:35:32 +0900
@@ -507,7 +507,7 @@ connman (0.77.2-0slp2+19) unstable; urgency=low
 
   * Fix RequestScan with specific bearer type
   * Fix technology enable/disable, fix net.connman.Error.NoCarrier
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+19
 
  -- Jeongseok Seo <s.seo@samsung.com>  Thu, 22 Sep 2011 11:12:09 +0900
@@ -515,7 +515,7 @@ connman (0.77.2-0slp2+19) unstable; urgency=low
 connman (0.77.2-0slp2+18) unstable; urgency=low
 
   * fix default connection problem (unexpected 3g connection)
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+18
 
  -- DongHoo Park <donghoo.park@samsung.com>  Wed, 21 Sep 2011 11:13:37 +0900
@@ -525,7 +525,7 @@ connman (0.77.2-0slp2+17) unstable; urgency=low
   * ConnMan upgrade to 0.77.2 commit 162dce08a37b8e09e098ef682bcafd2a7aa155d0
   * git://github.com/sameo/connman-stable
   * git://git.kernel.org/?p=network/connman/connman-stable.git
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.77.2-0slp2+17
 
  -- Jeongseok Seo <s.seo@samsung.com>  Mon, 19 Sep 2011 21:00:12 +0900
@@ -533,7 +533,7 @@ connman (0.77.2-0slp2+17) unstable; urgency=low
 connman (0.73-0slp2+17) unstable; urgency=low
 
   * add connection retry timer
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.73-0slp2+17
 
  -- DongHoo Park <donghoo.park@samsung.com>  Fri, 16 Sep 2011 16:15:16 +0900
@@ -541,7 +541,7 @@ connman (0.73-0slp2+17) unstable; urgency=low
 connman (0.73-0slp2+16) unstable; urgency=low
 
   * try auto connecting without reference to celluar connection
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.73-0slp2+16
 
  -- Misun Kim <ms0123.kim@samsung.com>  Fri, 16 Sep 2011 15:16:25 +0900
@@ -549,7 +549,7 @@ connman (0.73-0slp2+16) unstable; urgency=low
 connman (0.73-0slp2+15) unstable; urgency=low
 
   * Fix serveral ConnMan crashes by Samuel Ortiz
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.73-0slp2+15
 
  -- Jeongseok Seo <s.seo@samsung.com>  Thu, 15 Sep 2011 23:25:36 +0900
@@ -557,7 +557,7 @@ connman (0.73-0slp2+15) unstable; urgency=low
 connman (0.73-0slp2+14) unstable; urgency=low
 
   * fix build warnning - pass invalid pointer
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.73-0slp2+14
 
  -- DongHoo Park <donghoo.park@samsung.com>  Wed, 14 Sep 2011 10:59:36 +0900
@@ -565,7 +565,7 @@ connman (0.73-0slp2+14) unstable; urgency=low
 connman (0.73-0slp2+13) unstable; urgency=low
 
   * stop scanning in connected state / bug fix - bg scan interval was increased by scan request
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.73-0slp2+13
 
  -- Misun Kim <ms0123.kim@samsung.com>  Wed, 07 Sep 2011 15:38:48 +0900
@@ -573,7 +573,7 @@ connman (0.73-0slp2+13) unstable; urgency=low
 connman (0.73-0slp2+12) unstable; urgency=low
 
   * Add scan complete signal
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.73-0slp2+12
 
  -- Sunkey Lee <yuvjjang.lee@samsung.com>  Wed, 31 Aug 2011 15:05:01 +0900
@@ -581,7 +581,7 @@ connman (0.73-0slp2+12) unstable; urgency=low
 connman (0.73-0slp2+11) unstable; urgency=low
 
   * add cellular service enabled notifier
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.73-0slp2+11
 
  -- DongHoo Park <donghoo.park@samsung.com>  Tue, 30 Aug 2011 19:19:51 +0900
@@ -589,7 +589,7 @@ connman (0.73-0slp2+11) unstable; urgency=low
 connman (0.73-0slp2+10) unstable; urgency=low
 
   * fix to make multiple pdp, add network option changed signal
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.73-0slp2+10
 
  -- DongHoo Park <donghoo.park@samsung.com>  Mon, 29 Aug 2011 17:04:38 +0900
@@ -597,7 +597,7 @@ connman (0.73-0slp2+10) unstable; urgency=low
 connman (0.73-0slp2+9) unstable; urgency=low
 
   * add sim init signal and fix duplicate device, network
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.73-0slp2+9
 
  -- DongHoo Park <donghoo.park@samsung.com>  Wed, 24 Aug 2011 23:06:46 +0900
@@ -605,7 +605,7 @@ connman (0.73-0slp2+9) unstable; urgency=low
 connman (0.73-0slp2+8) unstable; urgency=low
 
   * add sonet plug-in , always on plug-in, modify device force scan trigger
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.73-0slp2+8
 
  -- DongHoo Park <donghoo.park@samsung.com>  Tue, 23 Aug 2011 10:44:17 +0900
@@ -613,7 +613,7 @@ connman (0.73-0slp2+8) unstable; urgency=low
 connman (0.73-0slp2+7) unstable; urgency=low
 
   * Add more APIs to use user-initiated pdp connection management
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.73-0slp2+6
 
  -- Jeongseok Seo <s.seo@samsung.com>  Tue, 23 Aug 2011 09:45:22 +0900
@@ -621,7 +621,7 @@ connman (0.73-0slp2+7) unstable; urgency=low
 connman (0.73-0slp2+6) unstable; urgency=low
 
   * System-wide connection management (so-called "one connection")
-  * Git: pkgs/c/connman
+  * Git: slp/pkgs/c/connman
   * Tag: connman_0.73-0slp2+6
 
  -- Jeongseok Seo <s.seo@samsung.com>  Thu, 18 Aug 2011 16:11:37 +0900

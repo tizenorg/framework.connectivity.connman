@@ -1,14 +1,14 @@
-#sbs-git:pkgs/c/connman connman 0.77.2
+#sbs-git:pkgs/c/connman connman 0.78.4
 
 Name:       connman
 Summary:    Connection Manager
-Version:    0.77.2_75
+Version:    0.78.4_81
 Release:    1
 Group:      System/Network
 License:    GNU General Public License version 2
 URL:        http://connman.net
 Source0:    %{name}-%{version}.tar.gz
-Source1001: packaging/connman.manifest 
+Source1001: packaging/connman.manifest
 BuildRequires:  pkgconfig(glib-2.0)
 BuildRequires:  pkgconfig(dbus-1)
 BuildRequires:  pkgconfig(xtables)
