@@ -1,3 +1,11 @@
+connman (0.78.4-0slp2+81) unstable; urgency=low
+
+  * Fix wifi_scan
+  * Git: slp/pkgs/c/connman
+  * Tag: connman_0.78.4-0slp2+81
+
+ -- Danny Jeongseok Seo <s.seo@samsung.com>  Tue, 22 May 2012 17:32:09 +0900
+
 connman (0.78.4-0slp2+80) unstable; urgency=low
 
   * Wi-Fi enterprise SIM and AKA

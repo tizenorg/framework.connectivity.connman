@@ -491,6 +491,11 @@ static int wifi_scan(struct connman_device *device)
 	if (wifi->tethering == TRUE)
 		return 0;
 
+#if defined TIZEN_EXT
+	if (__connman_device_scanning(device) == TRUE)
+		return -EALREADY;
+#endif
+
 	connman_device_ref(device);
 	ret = g_supplicant_interface_scan(wifi->interface, NULL,
 					scan_callback, device);
@@ -513,6 +518,11 @@ static int wifi_scan_fast(struct connman_device *device)
 
 	if (wifi->tethering == TRUE)
 		return 0;
+
+#if defined TIZEN_EXT
+	if (__connman_device_scanning(device) == TRUE)
+		return -EALREADY;
+#endif
 
 	driver_max_ssids = g_supplicant_interface_get_max_scan_ssids(
 							wifi->interface);
