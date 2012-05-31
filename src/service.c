@@ -508,6 +508,59 @@ static int service_load(struct connman_service *service)
 		service->pac = str;
 	}
 
+#if defined TIZEN_EXT
+	if (service->type == CONNMAN_SERVICE_TYPE_WIFI &&
+			service->security == CONNMAN_SERVICE_SECURITY_8021X) {
+		str = g_key_file_get_string(keyfile,
+				service->identifier, "EAP", NULL);
+		if (str != NULL) {
+			g_free(service->eap);
+			service->eap = str;
+		}
+
+		str = g_key_file_get_string(keyfile,
+				service->identifier, "Phase2", NULL);
+		if (str != NULL) {
+			g_free(service->phase2);
+			service->phase2 = str;
+		}
+
+		str = g_key_file_get_string(keyfile,
+				service->identifier, "Identity", NULL);
+		if (str != NULL) {
+			g_free(service->identity);
+			service->identity = str;
+		}
+
+		str = g_key_file_get_string(keyfile,
+				service->identifier, "CACertFile", NULL);
+		if (str != NULL) {
+			g_free(service->ca_cert_file);
+			service->ca_cert_file = str;
+		}
+
+		str = g_key_file_get_string(keyfile,
+				service->identifier, "ClientCertFile", NULL);
+		if (str != NULL) {
+			g_free(service->client_cert_file);
+			service->client_cert_file = str;
+		}
+
+		str = g_key_file_get_string(keyfile,
+				service->identifier, "PrivateKeyFile", NULL);
+		if (str != NULL) {
+			g_free(service->private_key_file);
+			service->private_key_file = str;
+		}
+
+		str = g_key_file_get_string(keyfile,
+				service->identifier, "PrivateKeyPassphrase", NULL);
+		if (str != NULL) {
+			g_free(service->private_key_passphrase);
+			service->private_key_passphrase = str;
+		}
+	}
+#endif
 done:
 	g_key_file_free(keyfile);
 
@@ -673,6 +726,59 @@ static int service_save(struct connman_service *service)
 		g_key_file_remove_key(keyfile, service->identifier,
 							"Proxy.URL", NULL);
 
+#if defined TIZEN_EXT
+	if (service->type == CONNMAN_SERVICE_TYPE_WIFI &&
+			service->security == CONNMAN_SERVICE_SECURITY_8021X) {
+		if (service->eap != NULL && strlen(service->eap) > 0)
+			g_key_file_set_string(keyfile, service->identifier,
+					"EAP", service->eap);
+		else
+			g_key_file_remove_key(keyfile, service->identifier,
+					"EAP", NULL);
+
+		if (service->phase2 != NULL && strlen(service->phase2) > 0)
+			g_key_file_set_string(keyfile, service->identifier,
+					"Phase2", service->phase2);
+		else
+			g_key_file_remove_key(keyfile, service->identifier,
+					"Phase2", NULL);
+
+		if (service->identity != NULL && strlen(service->identity) > 0)
+			g_key_file_set_string(keyfile, service->identifier,
+					"Identity", service->identity);
+		else
+			g_key_file_remove_key(keyfile, service->identifier,
+					"Identity", NULL);
+
+		if (service->ca_cert_file != NULL && strlen(service->ca_cert_file) > 0)
+			g_key_file_set_string(keyfile, service->identifier,
+					"CACertFile", service->ca_cert_file);
+		else
+			g_key_file_remove_key(keyfile, service->identifier,
+					"CACertFile", NULL);
+
+		if (service->client_cert_file != NULL && strlen(service->client_cert_file) > 0)
+			g_key_file_set_string(keyfile, service->identifier,
+					"ClientCertFile", service->client_cert_file);
+		else
+			g_key_file_remove_key(keyfile, service->identifier,
+					"ClientCertFile", NULL);
+
+		if (service->private_key_file != NULL && strlen(service->private_key_file) > 0)
+			g_key_file_set_string(keyfile, service->identifier,
+					"PrivateKeyFile", service->private_key_file);
+		else
+			g_key_file_remove_key(keyfile, service->identifier,
+					"PrivateKeyFile", NULL);
+
+		if (service->private_key_passphrase != NULL && strlen(service->private_key_passphrase) > 0)
+			g_key_file_set_string(keyfile, service->identifier,
+					"PrivateKeyPassphrase", service->private_key_passphrase);
+		else
+			g_key_file_remove_key(keyfile, service->identifier,
+					"PrivateKeyPassphrase", NULL);
+	}
+#endif
 done:
 	__connman_storage_save_service(keyfile, service->identifier);
 
@@ -5378,6 +5484,11 @@ int __connman_service_create_and_connect(DBusMessage *msg)
 	DBusMessageIter iter, array;
 	const char *mode = "managed", *security = "none", *group_security;
 	const char *type = NULL, *ssid = NULL, *passphrase = NULL;
+#if defined TIZEN_EXT
+	const char *eap_type = NULL, *eap_auth = NULL, *identity = NULL, *password = NULL;
+	const char *ca_cert_file = NULL, *client_cert_file = NULL;
+	const char *private_key_file = NULL, *private_key_password = NULL;
+#endif
 	connman_bool_t network_created = FALSE;
 	unsigned int ssid_len = 0;
 	const char *ident;
@@ -5413,6 +5524,33 @@ int __connman_service_create_and_connect(DBusMessage *msg)
 			else if (g_str_equal(key, "WiFi.SSID") == TRUE ||
 					g_str_equal(key, "SSID") == TRUE)
 				dbus_message_iter_get_basic(&value, &ssid);
+#if defined TIZEN_EXT
+			else if (g_str_equal(key, "WiFi.EAPType") == TRUE ||
+					g_str_equal(key, "EAPType") == TRUE)
+				dbus_message_iter_get_basic(&value, &eap_type);
+			else if (g_str_equal(key, "WiFi.EAPAuth") == TRUE ||
+					g_str_equal(key, "EAPAuth") == TRUE)
+				dbus_message_iter_get_basic(&value, &eap_auth);
+			else if (g_str_equal(key, "WiFi.Identity") == TRUE ||
+					g_str_equal(key, "Identity") == TRUE)
+				dbus_message_iter_get_basic(&value, &identity);
+			else if (g_str_equal(key, "WiFi.Password") == TRUE ||
+					g_str_equal(key, "Password") == TRUE)
+				dbus_message_iter_get_basic(&value, &password);
+			else if (g_str_equal(key, "WiFi.CACert") == TRUE ||
+					g_str_equal(key, "CACert") == TRUE)
+				dbus_message_iter_get_basic(&value, &ca_cert_file);
+			else if (g_str_equal(key, "WiFi.ClientCert") == TRUE ||
+					g_str_equal(key, "ClientCert") == TRUE)
+				dbus_message_iter_get_basic(&value, &client_cert_file);
+			else if (g_str_equal(key, "WiFi.PrivateKeyFile") == TRUE ||
+					g_str_equal(key, "PrivateKeyFile") == TRUE)
+				dbus_message_iter_get_basic(&value, &private_key_file);
+			else if (g_str_equal(key, "WiFi.PrivateKeyPassword") == TRUE ||
+					g_str_equal(key, "PrivateKeyPassword") == TRUE)
+				dbus_message_iter_get_basic(&value, &private_key_password);
+			break;
+#endif
 		}
 
 		dbus_message_iter_next(&array);
@@ -5502,6 +5640,34 @@ int __connman_service_create_and_connect(DBusMessage *msg)
 		g_free(service->passphrase);
 		service->passphrase = g_strdup(passphrase);
 	}
+
+#if defined TIZEN_EXT
+	if (g_strcmp0(security, "ieee8021x") == 0) {
+		if (eap_type != NULL)
+			__connman_service_set_string(service, "EAP", eap_type);
+
+		if (eap_auth != NULL)
+			__connman_service_set_string(service, "Phase2", eap_auth);
+
+		if (identity != NULL)
+			__connman_service_set_string(service, "Identity", identity);
+
+		if (password != NULL)
+			__connman_service_set_string(service, "Passphrase", password);
+
+		if (ca_cert_file != NULL)
+			__connman_service_set_string(service, "CACertFile", ca_cert_file);
+
+		if (client_cert_file != NULL)
+			__connman_service_set_string(service, "ClientCertFile", client_cert_file);
+
+		if (private_key_file != NULL)
+			__connman_service_set_string(service, "PrivateKeyFile", private_key_file);
+
+		if (private_key_password != NULL)
+			__connman_service_set_string(service, "PrivateKeyPassphrase", private_key_password);
+	}
+#endif
 
 	service->userconnect = TRUE;
 
@@ -5934,6 +6100,10 @@ unsigned int __connman_service_get_order(struct connman_service *service)
 			service->order = 1;
 		else if (service->type == CONNMAN_SERVICE_TYPE_VPN)
 			service->order = 10;
+#if defined TIZEN_EXT
+		else if (service->type == CONNMAN_SERVICE_TYPE_WIFI)
+			service->order = 2;
+#endif
 		else
 			service->order = 0;
 	}

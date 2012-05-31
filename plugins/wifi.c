@@ -1224,15 +1224,6 @@ static void network_added(GSupplicantNetwork *supplicant_network)
 		wifi->networks = g_slist_append(wifi->networks, network);
 	}
 
-#if defined TIZEN_EXT
-	connman_debug("--------------------------------------------");
-	connman_debug("name : %s", name);
-	connman_debug("ssid : %s", ssid);
-	connman_debug("security : %s", security);
-	connman_debug("strength : %d", calculate_strength(supplicant_network));
-	connman_debug("wps & WiFi.WPS : %d", wps);
-#endif
-
 	if (name != NULL && name[0] != '\0')
 		connman_network_set_name(network, name);
 

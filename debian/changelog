@@ -1,3 +1,11 @@
+connman (0.78.4-0slp2+79) unstable; urgency=low
+
+  * Revise Wi-Fi enterprise to enable PEAP, TLS, TTLS
+  * Git: slp/pkgs/c/connman
+  * Tag: connman_0.78.4-0slp2+79
+
+ -- Danny Jeongseok Seo <s.seo@samsung.com>  Fri, 11 May 2012 10:28:04 +0900
+
 connman (0.78.4-0slp2+78) unstable; urgency=low
 
   * Fix telephony technology driver
