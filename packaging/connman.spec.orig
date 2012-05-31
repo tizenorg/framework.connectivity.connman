@@ -39,7 +39,7 @@ rm -rf %{buildroot}
 %make_install
 
 mkdir -p %{buildroot}/var/lib/connman
-cp resources/var/lib/connman/settings %{buildroot}/var/lib/connman/settings
+cp resources/var/lib/connman/default.profile %{buildroot}/var/lib/connman/default.profile
 mkdir -p %{buildroot}/usr/share/dbus-1/services
 cp resources/usr/share/dbus-1/services/net.connman.service %{buildroot}/usr/share/dbus-1/services/net.connman.service
 mkdir -p %{buildroot}/usr/etc/connman
@@ -61,14 +61,14 @@ cp src/connman.conf %{buildroot}/usr/etc/dbus-1/system.d/
 
 %post
 #Resource
-chmod 600 /var/lib/connman/settings
+chmod 600 /var/lib/connman/default.profile
 
 
 %files
 %defattr(-,root,root,-)
 #%doc AUTHORS COPYING INSTALL ChangeLog NEWS README
 %{_sbindir}/*
-%{_var}/lib/connman/settings
+%{_var}/lib/connman/default.profile
 %{_libdir}/connman/plugins/*.so
 %{_datadir}/dbus-1/services/*
 %{_prefix}/etc/dbus-1/system.d/*

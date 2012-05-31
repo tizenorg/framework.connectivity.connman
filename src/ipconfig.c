@@ -40,7 +40,7 @@
 #include "connman.h"
 
 struct connman_ipconfig {
-	gint refcount;
+	int refcount;
 	int index;
 	enum connman_ipconfig_type type;
 
@@ -452,6 +452,60 @@ static void set_ipv6_privacy(gchar *ifname, int value)
 	fclose(f);
 }
 
+static int get_rp_filter()
+{
+	FILE *f;
+	int value = -EINVAL, tmp;
+
+	f = fopen("/proc/sys/net/ipv4/conf/all/rp_filter", "r");
+
+	if (f != NULL) {
+		if (fscanf(f, "%d", &tmp) == 1)
+			value = tmp;
+		fclose(f);
+	}
+
+	return value;
+}
+
+static void set_rp_filter(int value)
+{
+	FILE *f;
+
+	f = fopen("/proc/sys/net/ipv4/conf/all/rp_filter", "r+");
+
+	if (f == NULL)
+		return;
+
+	fprintf(f, "%d", value);
+
+	fclose(f);
+}
+
+int __connman_ipconfig_set_rp_filter()
+{
+	int value;
+
+	value = get_rp_filter();
+
+	if (value < 0)
+		return value;
+
+	set_rp_filter(2);
+
+	connman_info("rp_filter set to 2 (loose mode routing), "
+			"old value was %d", value);
+
+	return value;
+}
+
+void __connman_ipconfig_unset_rp_filter(int old_value)
+{
+	set_rp_filter(old_value);
+
+	connman_info("rp_filter restored to %d", old_value);
+}
+
 static void free_ipdevice(gpointer data)
 {
 	struct connman_ipdevice *ipdevice = data;
@@ -572,10 +626,6 @@ void __connman_ipconfig_newlink(int index, unsigned short type,
 
 	ipdevice->index = index;
 	ipdevice->ifname = connman_inet_ifname(index);
-	if (ipdevice->ifname == NULL) {
-		g_free(ipdevice);
-		return;
-	}
 	ipdevice->type = type;
 
 	ipdevice->ipv6_enabled = get_ipv6_state(ipdevice->ifname);
@@ -1275,10 +1325,9 @@ struct connman_ipconfig *connman_ipconfig_create(int index,
  */
 struct connman_ipconfig *connman_ipconfig_ref(struct connman_ipconfig *ipconfig)
 {
-	DBG("ipconfig %p refcount %d", ipconfig,
-				g_atomic_int_get(&ipconfig->refcount) + 1);
+	DBG("ipconfig %p refcount %d", ipconfig, ipconfig->refcount + 1);
 
-	g_atomic_int_inc(&ipconfig->refcount);
+	__sync_fetch_and_add(&ipconfig->refcount, 1);
 
 	return ipconfig;
 }
@@ -1294,24 +1343,25 @@ void connman_ipconfig_unref(struct connman_ipconfig *ipconfig)
 	if (ipconfig == NULL)
 		return;
 
-	DBG("ipconfig %p refcount %d", ipconfig,
-			g_atomic_int_get(&ipconfig->refcount) - 1);
+	DBG("ipconfig %p refcount %d", ipconfig, ipconfig->refcount - 1);
 
-	if (g_atomic_int_dec_and_test(&ipconfig->refcount) == TRUE) {
-		__connman_ipconfig_disable(ipconfig);
+	if (__sync_fetch_and_sub(&ipconfig->refcount, 1) != 1)
+		return;
 
-		connman_ipconfig_set_ops(ipconfig, NULL);
+	if (__connman_ipconfig_disable(ipconfig) < 0)
+		ipconfig_list = g_list_remove(ipconfig_list, ipconfig);
 
-		if (ipconfig->origin != NULL) {
-			connman_ipconfig_unref(ipconfig->origin);
-			ipconfig->origin = NULL;
-		}
+	connman_ipconfig_set_ops(ipconfig, NULL);
 
-		connman_ipaddress_free(ipconfig->system);
-		connman_ipaddress_free(ipconfig->address);
-		g_free(ipconfig->last_dhcp_address);
-		g_free(ipconfig);
+	if (ipconfig->origin != NULL) {
+		connman_ipconfig_unref(ipconfig->origin);
+		ipconfig->origin = NULL;
 	}
+
+	connman_ipaddress_free(ipconfig->system);
+	connman_ipaddress_free(ipconfig->address);
+	g_free(ipconfig->last_dhcp_address);
+	g_free(ipconfig);
 }
 
 /**
@@ -1932,10 +1982,10 @@ void __connman_ipconfig_append_ipv4config(struct connman_ipconfig *ipconfig,
 	switch (ipconfig->method) {
 	case CONNMAN_IPCONFIG_METHOD_UNKNOWN:
 	case CONNMAN_IPCONFIG_METHOD_OFF:
-	case CONNMAN_IPCONFIG_METHOD_FIXED:
 	case CONNMAN_IPCONFIG_METHOD_DHCP:
 	case CONNMAN_IPCONFIG_METHOD_AUTO:
 		return;
+	case CONNMAN_IPCONFIG_METHOD_FIXED:
 	case CONNMAN_IPCONFIG_METHOD_MANUAL:
 		break;
 	}

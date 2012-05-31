@@ -98,8 +98,8 @@ install: build
 	$(MAKE) DESTDIR=$(CURDIR)/debian/tmp install
 
 	mkdir -p $(CURDIR)/debian/tmp/var/lib/connman
-	cp -f $(CURDIR)/resources/var/lib/connman/settings \
-		$(CURDIR)/debian/tmp/var/lib/connman/settings
+	cp -f $(CURDIR)/resources/var/lib/connman/default.profile \
+		$(CURDIR)/debian/tmp/var/lib/connman/default.profile
 	mkdir -p $(CURDIR)/debian/tmp$(PREFIX)/share/dbus-1/services
 	cp -f $(CURDIR)/resources$(PREFIX)/share/dbus-1/services/net.connman.service \
 		$(CURDIR)/debian/tmp$(PREFIX)/share/dbus-1/services/net.connman.service

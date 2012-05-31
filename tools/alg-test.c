@@ -23,6 +23,7 @@
 #include <config.h>
 #endif
 
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -60,7 +61,7 @@ static int create_hash(int sk, const char *pathname)
 	struct stat st;
 	int fd;
 
-	fd = open(pathname, O_RDONLY);
+	fd = open(pathname, O_RDONLY | O_CLOEXEC);
 	if (fd < 0)
 		return -1;
 
@@ -85,7 +86,7 @@ static int create_socket(void)
 	};
 	int sk, nsk;
 
-	sk = socket(PF_ALG, SOCK_SEQPACKET, 0);
+	sk = socket(PF_ALG, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
 	if (sk < 0) {
 		perror("Failed to create socket");
 		return -1;

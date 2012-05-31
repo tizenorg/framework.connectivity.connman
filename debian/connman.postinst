@@ -1,4 +1,2 @@
 #!/bin/sh
-
-chmod 600 /var/lib/connman/default.profile
-
+chmod 600 /var/lib/connman/settings

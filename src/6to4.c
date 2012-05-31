@@ -49,7 +49,7 @@ static char *tunnel_ip_address;
 static GWeb *web;
 static guint web_request_id;
 
-#define STATUS_URL "http://ipv6.google.com/"
+#define STATUS_URL "http://ipv6.connman.net/online/status.html"
 
 #define NLMSG_TAIL(nmsg) \
 	((struct rtattr *) (((void *)(nmsg)) + NLMSG_ALIGN((nmsg)->nlmsg_len)))
@@ -118,7 +118,7 @@ static int rtnl_open(struct rtnl_handle *rth)
 
 	memset(rth, 0, sizeof(*rth));
 
-	rth->fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+	rth->fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
 	if (rth->fd < 0) {
 		connman_error("Can not open netlink socket: %s",
 						strerror(errno));
@@ -213,7 +213,7 @@ static int tunnel_create(struct in_addr *addr)
 
 	strncpy(ifr.ifr_name, "sit0", IFNAMSIZ);
 	ifr.ifr_ifru.ifru_data = (void *)&p;
-	fd = socket(AF_INET, SOCK_DGRAM, 0);
+	fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
 	ret = ioctl(fd, SIOCADDTUNNEL, &ifr);
 	if (ret)
 		connman_error("add tunnel %s failed: %s", ifr.ifr_name,
@@ -245,7 +245,7 @@ static void tunnel_destroy()
 
 	strncpy(ifr.ifr_name, "tun6to4", IFNAMSIZ);
 	ifr.ifr_ifru.ifru_data = (void *)&p;
-	fd = socket(AF_INET, SOCK_DGRAM, 0);
+	fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
 	if (fd < 0) {
 		connman_error("socket failed: %s", strerror(errno));
 		return;
@@ -396,8 +396,8 @@ static gboolean web_result(GWebResult *result, gpointer user_data)
 static int init_6to4(struct in_addr *ip4addr)
 {
 	unsigned int a, b, c, d;
+	int ret, if_index;
 	in_addr_t addr;
-	int ret;
 
 	DBG("");
 
@@ -426,9 +426,13 @@ static int init_6to4(struct in_addr *ip4addr)
 	if (ret)
 		goto error;
 
+	if_index = connman_inet_ifindex("tun6to4");
+	if (if_index < 0)
+		goto error;
+
 	/* We try to verify that connectivity through tunnel works ok.
 	 */
-	web = g_web_new(0);
+	web = g_web_new(if_index);
 	if (web == NULL)
 		goto error;
 

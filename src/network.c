@@ -32,7 +32,7 @@ static GSList *network_list = NULL;
 static GSList *driver_list = NULL;
 
 struct connman_network {
-	gint refcount;
+	int refcount;
 	enum connman_network_type type;
 	connman_bool_t available;
 	connman_bool_t connected;
@@ -182,6 +182,8 @@ static void network_remove(struct connman_network *network)
 
 	if (network->driver == NULL)
 		return;
+
+	connman_network_set_connected(network, FALSE);
 
 	switch (network->type) {
 	case CONNMAN_NETWORK_TYPE_UNKNOWN:
@@ -392,9 +394,9 @@ struct connman_network *connman_network_create(const char *identifier,
 struct connman_network *connman_network_ref(struct connman_network *network)
 {
 	DBG("network %p name %s refcount %d", network, network->name,
-		g_atomic_int_get(&network->refcount) + 1);
+		network->refcount + 1);
 
-	g_atomic_int_inc(&network->refcount);
+	__sync_fetch_and_add(&network->refcount, 1);
 
 	return network;
 }
@@ -408,9 +410,9 @@ struct connman_network *connman_network_ref(struct connman_network *network)
 void connman_network_unref(struct connman_network *network)
 {
 	DBG("network %p name %s refcount %d", network, network->name,
-		g_atomic_int_get(&network->refcount) - 1);
+		network->refcount - 1);
 
-	if (g_atomic_int_dec_and_test(&network->refcount) == FALSE)
+	if (__sync_fetch_and_sub(&network->refcount, 1) != 1)
 		return;
 
 	network_list = g_slist_remove(network_list, network);
@@ -656,29 +658,20 @@ static void set_associate_error(struct connman_network *network)
 {
 	struct connman_service *service;
 
-	if (network->associating == FALSE)
-		return ;
-
-	network->associating = FALSE;
-
 	service = __connman_service_lookup_from_network(network);
 
-	__connman_service_ipconfig_indicate_state(service,
-					CONNMAN_SERVICE_STATE_FAILURE,
-					CONNMAN_IPCONFIG_TYPE_IPV4);
+	__connman_service_indicate_error(service,
+					CONNMAN_SERVICE_ERROR_CONNECT_FAILED);
 }
 
 static void set_configure_error(struct connman_network *network)
 {
 	struct connman_service *service;
 
-	network->connecting = FALSE;
-
 	service = __connman_service_lookup_from_network(network);
 
-	__connman_service_ipconfig_indicate_state(service,
-					CONNMAN_SERVICE_STATE_FAILURE,
-					CONNMAN_IPCONFIG_TYPE_IPV4);
+	__connman_service_indicate_error(service,
+					CONNMAN_SERVICE_ERROR_CONNECT_FAILED);
 }
 
 static void set_invalid_key_error(struct connman_network *network)
@@ -747,6 +740,7 @@ void connman_network_set_error(struct connman_network *network,
 	DBG("nework %p, error %d", network, error);
 
 	network->connecting = FALSE;
+	network->associating = FALSE;
 
 	switch (error) {
 	case CONNMAN_NETWORK_ERROR_UNKNOWN:
@@ -789,6 +783,9 @@ static void set_configuration(struct connman_network *network)
 	struct connman_service *service;
 
 	DBG("network %p", network);
+
+	if (network->device == NULL)
+		return;
 
 	__connman_device_set_network(network->device, network);
 
@@ -1090,11 +1087,9 @@ static gboolean set_connected(gpointer user_data)
 		}
 
 	} else {
-		struct connman_service *service;
+		enum connman_service_state state;
 
 		__connman_device_set_network(network->device, NULL);
-
-		service = __connman_service_lookup_from_network(network);
 
 		switch (ipv4_method) {
 		case CONNMAN_IPCONFIG_METHOD_UNKNOWN:
@@ -1108,11 +1103,24 @@ static gboolean set_connected(gpointer user_data)
 			break;
 		}
 
-		__connman_service_ipconfig_indicate_state(service,
+		/*
+		 * We only set the disconnect state if we were not in idle
+		 * or in failure. It does not make sense to go to disconnect
+		 * state if we were not connected.
+		 */
+		state = __connman_service_ipconfig_get_state(service,
+						CONNMAN_IPCONFIG_TYPE_IPV4);
+		if (state != CONNMAN_SERVICE_STATE_IDLE &&
+					state != CONNMAN_SERVICE_STATE_FAILURE)
+			__connman_service_ipconfig_indicate_state(service,
 					CONNMAN_SERVICE_STATE_DISCONNECT,
 					CONNMAN_IPCONFIG_TYPE_IPV4);
 
-		__connman_service_ipconfig_indicate_state(service,
+		state = __connman_service_ipconfig_get_state(service,
+						CONNMAN_IPCONFIG_TYPE_IPV6);
+		if (state != CONNMAN_SERVICE_STATE_IDLE &&
+					state != CONNMAN_SERVICE_STATE_FAILURE)
+			__connman_service_ipconfig_indicate_state(service,
 					CONNMAN_SERVICE_STATE_DISCONNECT,
 					CONNMAN_IPCONFIG_TYPE_IPV6);
 
@@ -1147,7 +1155,6 @@ static gboolean set_connected(gpointer user_data)
 		__connman_service_ipconfig_indicate_state(service,
 					CONNMAN_SERVICE_STATE_IDLE,
 					CONNMAN_IPCONFIG_TYPE_IPV6);
-
 #if defined TIZEN_EXT
 		if (connman_service_get_type(service) ==
 				CONNMAN_SERVICE_TYPE_CELLULAR)
@@ -1371,6 +1378,9 @@ int __connman_network_set_ipconfig(struct connman_network *network,
 	enum connman_ipconfig_method method;
 	int ret;
 
+	if (network == NULL)
+		return -EINVAL;
+
 	if (ipconfig_ipv6) {
 		method = __connman_ipconfig_get_method(ipconfig_ipv6);
 
@@ -1544,7 +1554,7 @@ int connman_network_set_nameservers(struct connman_network *network,
 				const char *nameservers)
 {
 	struct connman_service *service;
-	char **nameservers_array = NULL;
+	char **nameservers_array;
 	int i;
 
 	DBG("network %p nameservers %s", network, nameservers);
@@ -1555,12 +1565,14 @@ int connman_network_set_nameservers(struct connman_network *network,
 
 	__connman_service_nameserver_clear(service);
 
-	if (nameservers != NULL)
-		nameservers_array = g_strsplit(nameservers, " ", 0);
+	if (nameservers == NULL)
+		return 0;
+
+	nameservers_array = g_strsplit(nameservers, " ", 0);
 
 	for (i = 0; nameservers_array[i] != NULL; i++) {
 		__connman_service_nameserver_append(service,
-						nameservers_array[i]);
+						nameservers_array[i], FALSE);
 	}
 
 	g_strfreev(nameservers_array);
@@ -1683,7 +1695,7 @@ int connman_network_set_roaming(struct connman_network *network,
 int connman_network_set_string(struct connman_network *network,
 					const char *key, const char *value)
 {
-//	DBG("network %p key %s value %s", network, key, value);
+	DBG("network %p key %s value %s", network, key, value);
 
 	if (g_strcmp0(key, "Name") == 0)
 		return connman_network_set_name(network, value);
@@ -1845,7 +1857,7 @@ connman_bool_t connman_network_get_bool(struct connman_network *network,
 int connman_network_set_blob(struct connman_network *network,
 			const char *key, const void *data, unsigned int size)
 {
-//	DBG("network %p key %s size %d", network, key, size);
+	DBG("network %p key %s size %d", network, key, size);
 
 	if (g_str_equal(key, "WiFi.SSID") == TRUE) {
 		g_free(network->wifi.ssid);
@@ -1873,7 +1885,7 @@ int connman_network_set_blob(struct connman_network *network,
 const void *connman_network_get_blob(struct connman_network *network,
 					const char *key, unsigned int *size)
 {
-//	DBG("network %p key %s", network, key);
+	DBG("network %p key %s", network, key);
 
 	if (g_str_equal(key, "WiFi.SSID") == TRUE) {
 		if (size != NULL)

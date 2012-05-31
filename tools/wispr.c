@@ -23,6 +23,7 @@
 #include <config.h>
 #endif
 
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -373,7 +374,7 @@ static gboolean user_input(const char *label, gboolean hidden,
 	data->user_data = user_data;
 	data->hidden = hidden;
 
-	data->fd = open("/dev/tty", O_RDWR | O_NOCTTY);
+	data->fd = open("/dev/tty", O_RDWR | O_NOCTTY | O_CLOEXEC);
 	if (data->fd < 0)
 		goto error;
 

@@ -73,21 +73,22 @@ void connman_notifier_unregister(struct connman_notifier *notifier)
 
 #define MAX_TECHNOLOGIES 10
 
-static volatile gint registered[MAX_TECHNOLOGIES];
-static volatile gint enabled[MAX_TECHNOLOGIES];
-static volatile gint connected[MAX_TECHNOLOGIES];
+static volatile int registered[MAX_TECHNOLOGIES];
+static volatile int enabled[MAX_TECHNOLOGIES];
+static volatile int connected[MAX_TECHNOLOGIES];
 
 void __connman_notifier_list_registered(DBusMessageIter *iter, void *user_data)
 {
 	int i;
 
+	__sync_synchronize();
 	for (i = 0; i < MAX_TECHNOLOGIES; i++) {
 		const char *type = __connman_service_type2string(i);
 
 		if (type == NULL)
 			continue;
 
-		if (g_atomic_int_get(&registered[i]) > 0)
+		if (registered[i] > 0)
 			dbus_message_iter_append_basic(iter,
 						DBUS_TYPE_STRING, &type);
 	}
@@ -97,13 +98,14 @@ void __connman_notifier_list_enabled(DBusMessageIter *iter, void *user_data)
 {
 	int i;
 
+	__sync_synchronize();
 	for (i = 0; i < MAX_TECHNOLOGIES; i++) {
 		const char *type = __connman_service_type2string(i);
 
 		if (type == NULL)
 			continue;
 
-		if (g_atomic_int_get(&enabled[i]) > 0)
+		if (enabled[i] > 0)
 			dbus_message_iter_append_basic(iter,
 						DBUS_TYPE_STRING, &type);
 	}
@@ -113,13 +115,14 @@ void __connman_notifier_list_connected(DBusMessageIter *iter, void *user_data)
 {
 	int i;
 
+	__sync_synchronize();
 	for (i = 0; i < MAX_TECHNOLOGIES; i++) {
 		const char *type = __connman_service_type2string(i);
 
 		if (type == NULL)
 			continue;
 
-		if (g_atomic_int_get(&connected[i]) > 0)
+		if (connected[i] > 0)
 			dbus_message_iter_append_basic(iter,
 						DBUS_TYPE_STRING, &type);
 	}
@@ -158,8 +161,9 @@ unsigned int __connman_notifier_count_connected(void)
 {
 	unsigned int i, count = 0;
 
+	__sync_synchronize();
 	for (i = 0; i < MAX_TECHNOLOGIES; i++) {
-		if (g_atomic_int_get(&connected[i]) > 0)
+		if (connected[i] > 0)
 			count++;
 	}
 
@@ -176,7 +180,7 @@ const char *__connman_notifier_get_state(void)
 	return "offline";
 }
 
-static void state_changed(void)
+static void state_changed(connman_bool_t connected)
 {
 	unsigned int count = __connman_notifier_count_connected();
 	char *state = "offline";
@@ -185,8 +189,12 @@ static void state_changed(void)
 	if (count > 1)
 		return;
 
-	if (count > 0)
+	if (count == 1) {
+		if (connected == FALSE)
+			return;
+
 		state = "online";
+	}
 
 	connman_dbus_property_changed_basic(CONNMAN_MANAGER_PATH,
 				CONNMAN_MANAGER_INTERFACE, "State",
@@ -212,7 +220,7 @@ static void technology_connected(enum connman_service_type type,
 		CONNMAN_MANAGER_INTERFACE, "ConnectedTechnologies",
 		DBUS_TYPE_STRING, __connman_notifier_list_connected, NULL);
 
-	state_changed();
+	state_changed(connected);
 }
 
 void __connman_notifier_register(enum connman_service_type type)
@@ -234,7 +242,7 @@ void __connman_notifier_register(enum connman_service_type type)
 		break;
 	}
 
-	if (g_atomic_int_exchange_and_add(&registered[type], 1) == 0)
+	if (__sync_fetch_and_add(&registered[type], 1) == 0)
 		technology_registered(type, TRUE);
 }
 
@@ -242,7 +250,8 @@ void __connman_notifier_unregister(enum connman_service_type type)
 {
 	DBG("type %d", type);
 
-	if (g_atomic_int_get(&registered[type]) == 0) {
+	__sync_synchronize();
+	if (registered[type] == 0) {
 		connman_error("notifier unregister underflow");
 		return;
 	}
@@ -262,8 +271,10 @@ void __connman_notifier_unregister(enum connman_service_type type)
 		break;
 	}
 
-	if (g_atomic_int_dec_and_test(&registered[type]) == TRUE)
-		technology_registered(type, FALSE);
+	if (__sync_fetch_and_sub(&registered[type], 1) != 1)
+		return;
+
+	technology_registered(type, FALSE);
 }
 
 void __connman_notifier_enable(enum connman_service_type type)
@@ -285,7 +296,7 @@ void __connman_notifier_enable(enum connman_service_type type)
 		break;
 	}
 
-	if (g_atomic_int_exchange_and_add(&enabled[type], 1) == 0)
+	if (__sync_fetch_and_add(&enabled[type], 1) == 0)
 		technology_enabled(type, TRUE);
 }
 
@@ -293,7 +304,8 @@ void __connman_notifier_disable(enum connman_service_type type)
 {
 	DBG("type %d", type);
 
-	if (g_atomic_int_get(&enabled[type]) == 0) {
+	__sync_synchronize();
+	if (enabled[type] == 0) {
 		connman_error("notifier disable underflow");
 		return;
 	}
@@ -313,8 +325,10 @@ void __connman_notifier_disable(enum connman_service_type type)
 		break;
 	}
 
-	if (g_atomic_int_dec_and_test(&enabled[type]) == TRUE)
-		technology_enabled(type, FALSE);
+	if (__sync_fetch_and_sub(&enabled[type], 1) != 1)
+		return;
+
+	technology_enabled(type, FALSE);
 }
 
 void __connman_notifier_connect(enum connman_service_type type)
@@ -336,7 +350,7 @@ void __connman_notifier_connect(enum connman_service_type type)
 		break;
 	}
 
-	if (g_atomic_int_exchange_and_add(&connected[type], 1) == 0)
+	if (__sync_fetch_and_add(&connected[type], 1) == 0)
 		technology_connected(type, TRUE);
 }
 
@@ -344,7 +358,8 @@ void __connman_notifier_disconnect(enum connman_service_type type)
 {
 	DBG("type %d", type);
 
-	if (g_atomic_int_get(&connected[type]) == 0) {
+	__sync_synchronize();
+	if (connected[type] == 0) {
 		connman_error("notifier disconnect underflow");
 		return;
 	}
@@ -364,10 +379,10 @@ void __connman_notifier_disconnect(enum connman_service_type type)
 		break;
 	}
 
-	DBG("connected type(%d) cnt (%d)", type, g_atomic_int_get(&connected[type]) );
-	
-	if (g_atomic_int_dec_and_test(&connected[type]) == TRUE)
-		technology_connected(type, FALSE);
+	if (__sync_fetch_and_sub(&connected[type], 1) != 1)
+		return;
+
+	technology_connected(type, FALSE);
 }
 
 static void technology_default(enum connman_service_type type)
@@ -471,8 +486,6 @@ void __connman_notifier_offlinemode(connman_bool_t enabled)
 
 	DBG("enabled %d", enabled);
 
-	__connman_profile_changed(FALSE);
-
 	offlinemode_changed(enabled);
 
 	for (list = notifier_list; list; list = list->next) {
@@ -534,6 +547,7 @@ void __connman_notifier_service_state_changed(struct connman_service *service,
 
 	switch (state) {
 	case CONNMAN_SERVICE_STATE_UNKNOWN:
+	case CONNMAN_SERVICE_STATE_FAILURE:
 	case CONNMAN_SERVICE_STATE_DISCONNECT:
 	case CONNMAN_SERVICE_STATE_IDLE:
 		if (found == FALSE)
@@ -548,7 +562,6 @@ void __connman_notifier_service_state_changed(struct connman_service *service,
 	case CONNMAN_SERVICE_STATE_CONFIGURATION:
 	case CONNMAN_SERVICE_STATE_READY:
 	case CONNMAN_SERVICE_STATE_ONLINE:
-	case CONNMAN_SERVICE_STATE_FAILURE:
 		if (found == TRUE)
 			break;
 
@@ -600,7 +613,8 @@ connman_bool_t __connman_notifier_is_registered(enum connman_service_type type)
 	if (technology_supported(type) == FALSE)
 		return FALSE;
 
-	if (g_atomic_int_get(&registered[type]) > 0)
+	__sync_synchronize();
+	if (registered[type] > 0)
 		return TRUE;
 
 	return FALSE;
@@ -613,7 +627,8 @@ connman_bool_t __connman_notifier_is_enabled(enum connman_service_type type)
 	if (technology_supported(type) == FALSE)
 		return FALSE;
 
-	if (g_atomic_int_get(&enabled[type]) > 0)
+	__sync_synchronize();
+	if (enabled[type] > 0)
 		return TRUE;
 
 	return FALSE;

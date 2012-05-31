@@ -23,6 +23,7 @@
 #include <config.h>
 #endif
 
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -43,7 +44,7 @@ static int inet_ifup(const char *ifname)
 	struct ifreq ifr;
 	int sk, err;
 
-	sk = socket(PF_INET, SOCK_DGRAM, 0);
+	sk = socket(PF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
 	if (sk < 0)
 		return -errno;
 
@@ -80,7 +81,7 @@ static int create_tap(const char *ifname)
 	struct ifreq ifr;
 	int fd, val;
 
-	fd = open("/dev/net/tun", O_RDWR);
+	fd = open("/dev/net/tun", O_RDWR | O_CLOEXEC);
 	if (fd < 0) {
 		perror("Failed to open TUN/TAP device");
 		return -1;

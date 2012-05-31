@@ -50,7 +50,7 @@ static GList *pending_peers = NULL;
 
 struct ntpd_peer {
 	char *server;
-	gint refcount;
+	int refcount;
 };
 
 struct ntpdate_task {
@@ -76,7 +76,7 @@ static struct ntpd_peer *find_peer(GList *peer_list, const char* server)
 
 static void remove_peer(GList *peer_list, struct ntpd_peer *peer)
 {
-	if (!g_atomic_int_dec_and_test(&peer->refcount))
+	if (__sync_fetch_and_sub(&peer->refcount, 1) != 1)
 		return;
 
 	g_free(peer->server);
@@ -90,7 +90,7 @@ static connman_bool_t ntpd_running(void)
 	connman_bool_t ret;
 	struct sockaddr_in server_addr;
 
-	if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) == -1)
+	if ((sock = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0)) == -1)
 		return FALSE;
 
 	server_addr.sin_family = AF_INET;
@@ -255,7 +255,7 @@ static int ntpd_append(const char *server)
 
 	if ((peer = find_peer(pending_peers, server)) ||
 			(peer = find_peer(peers, server))) {
-		g_atomic_int_inc(&peer->refcount);
+		__sync_fetch_and_add(&peer->refcount, 1);
 		return 0;
 	}
 

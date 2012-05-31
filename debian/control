@@ -10,7 +10,7 @@ Package: connman
 Section: net
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Description: Intel Connection Manager daemon
+Description: Connection Manager
  The Linux Connection Manager project provides a daemon for managing
  Internet connections within embedded devices running the Linux
  operating system. The Connection Manager is designed to be slim and to
@@ -25,4 +25,4 @@ Package: connman-dbg
 Section: net
 Architecture: any
 Depends: connman (= ${Source-Version}), ${misc:Depends}
-Description: debug symbol for connman
+Description: debug symbols for Connection Manager

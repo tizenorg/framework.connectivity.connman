@@ -99,7 +99,7 @@ static void dhcp_invalidate(struct connman_dhcp *dhcp, connman_bool_t callback)
 	if (dhcp->nameservers != NULL) {
 		for (i = 0; dhcp->nameservers[i] != NULL; i++) {
 			__connman_service_nameserver_remove(service,
-							dhcp->nameservers[i]);
+						dhcp->nameservers[i], FALSE);
 		}
 	}
 
@@ -275,7 +275,7 @@ static void lease_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 		if (dhcp->nameservers != NULL) {
 			for (i = 0; dhcp->nameservers[i] != NULL; i++) {
 				__connman_service_nameserver_remove(service,
-							dhcp->nameservers[i]);
+						dhcp->nameservers[i], FALSE);
 			}
 			g_strfreev(dhcp->nameservers);
 		}
@@ -284,7 +284,7 @@ static void lease_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 
 		for (i = 0; dhcp->nameservers[i] != NULL; i++) {
 			__connman_service_nameserver_append(service,
-							dhcp->nameservers[i]);
+						dhcp->nameservers[i], FALSE);
 		}
 	} else {
 		g_strfreev(nameservers);
@@ -342,7 +342,23 @@ static void ipv4ll_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 	DBG("IPV4LL available");
 
 #if defined TIZEN_EXT
+	/*
+	 * Description: When DHCP is failed,
+	 *              most of naive users cannot understand auto-generated IP
+	 *              (IPV4 link local) and serious troubles to make Internet connection.
+	 */
 	dhcp_invalidate(dhcp, TRUE);
+
+	service = __connman_service_lookup_from_network(dhcp->network);
+	if (service == NULL)
+		return;
+
+	__connman_service_ipconfig_indicate_state(service,
+			CONNMAN_SERVICE_STATE_IDLE,
+			CONNMAN_IPCONFIG_TYPE_IPV4);
+	__connman_service_ipconfig_indicate_state(service,
+			CONNMAN_SERVICE_STATE_IDLE,
+			CONNMAN_IPCONFIG_TYPE_IPV6);
 #else
 	service = __connman_service_lookup_from_network(dhcp->network);
 	if (service == NULL)
@@ -472,6 +488,8 @@ int __connman_dhcp_start(struct connman_network *network, dhcp_cb callback)
 	dhcp->network = network;
 	dhcp->callback = callback;
 
+	connman_network_ref(network);
+
 	g_hash_table_replace(network_table, network, dhcp);
 
 	return dhcp_request(dhcp);
@@ -484,7 +502,8 @@ void __connman_dhcp_stop(struct connman_network *network)
 	if (network_table == NULL)
 		return;
 
-	g_hash_table_remove(network_table, network);
+	if (g_hash_table_remove(network_table, network) == TRUE)
+		connman_network_unref(network);
 }
 
 int __connman_dhcp_init(void)

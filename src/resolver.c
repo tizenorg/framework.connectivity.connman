@@ -23,6 +23,7 @@
 #include <config.h>
 #endif
 
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -126,10 +127,10 @@ static int resolvfile_export(void)
  * Description: /etc path is read-only in SLP
  *              /opt/etc/resolve.conf rather than /etc/resolve.conf
  */
-	fd = open("/opt/etc/resolv.conf", O_RDWR | O_CREAT,
+	fd = open("/opt/etc/resolv.conf", O_RDWR | O_CREAT | O_CLOEXEC,
 					S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 #else
-	fd = open("/etc/resolv.conf", O_RDWR | O_CREAT,
+	fd = open("/etc/resolv.conf", O_RDWR | O_CREAT | O_CLOEXEC,
 					S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 #endif
 	if (fd < 0) {
@@ -240,11 +241,22 @@ static gboolean resolver_expire_cb(gpointer user_data)
 {
 	struct entry_data *entry = user_data;
 	GSList *list;
+	int index;
 
 	DBG("interface %s domain %s server %s",
 			entry->interface, entry->domain, entry->server);
 
 	list = g_slist_append(NULL, entry);
+
+	index = connman_inet_ifindex(entry->interface);
+	if (index >= 0) {
+		struct connman_service *service;
+		service = __connman_service_lookup_from_index(index);
+		if (service != NULL)
+			__connman_service_nameserver_remove(service,
+							entry->server, TRUE);
+	}
+
 	remove_entries(list);
 
 	return FALSE;
@@ -270,10 +282,24 @@ static int append_resolver(const char *interface, const char *domain,
 	entry->domain = g_strdup(domain);
 	entry->server = g_strdup(server);
 	entry->flags = flags;
-	if (lifetime)
+	if (lifetime) {
+		int index;
 		entry->timeout = g_timeout_add_seconds(lifetime,
 						resolver_expire_cb, entry);
 
+		/*
+		 * We update the service only for those nameservers
+		 * that are automagically added via netlink (lifetime > 0)
+		 */
+		index = connman_inet_ifindex(interface);
+		if (index >= 0) {
+			struct connman_service *service;
+			service = __connman_service_lookup_from_index(index);
+			if (service != NULL)
+				__connman_service_nameserver_append(service,
+								server, TRUE);
+		}
+	}
 	entry_list = g_slist_append(entry_list, entry);
 
 	if (dnsproxy_enabled == TRUE)
@@ -295,7 +321,27 @@ static int append_resolver(const char *interface, const char *domain,
 int connman_resolver_append(const char *interface, const char *domain,
 						const char *server)
 {
+	GSList *list, *matches = NULL;
+
 	DBG("interface %s domain %s server %s", interface, domain, server);
+
+	if (server == NULL && domain == NULL)
+		return -EINVAL;
+
+	for (list = entry_list; list; list = list->next) {
+		struct entry_data *entry = list->data;
+
+		if (entry->timeout > 0 ||
+				g_strcmp0(entry->interface, interface) != 0 ||
+				g_strcmp0(entry->domain, domain) != 0 ||
+				g_strcmp0(entry->server, server) != 0)
+			continue;
+
+		matches = g_slist_append(matches, entry);
+	}
+
+	if (matches != NULL)
+		remove_entries(matches);
 
 	return append_resolver(interface, domain, server, 0, 0);
 }
@@ -330,6 +376,12 @@ int connman_resolver_append_lifetime(const char *interface, const char *domain,
 			continue;
 
 		g_source_remove(entry->timeout);
+
+		if (lifetime == 0) {
+			resolver_expire_cb(entry);
+			return 0;
+		}
+
 		entry->timeout = g_timeout_add_seconds(lifetime,
 						resolver_expire_cb, entry);
 		return 0;

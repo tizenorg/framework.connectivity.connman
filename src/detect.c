@@ -98,6 +98,12 @@ static void detect_dellink(unsigned short type, int index,
 
 	connman_device_unregister(device);
 	connman_device_unref(device);
+#if defined TIZEN_EXT
+	if (__connman_device_scanning(device) == TRUE) {
+		connman_device_reset_scanning(device);
+		connman_device_unref(device);
+	}
+#endif
 }
 
 static struct connman_rtnl detect_rtnl = {
