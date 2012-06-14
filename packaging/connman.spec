@@ -18,6 +18,17 @@ BuildRequires:  pkgconfig(libiptc)
 Connection Manager provides a daemon for managing Internet connections
 within embedded devices running the Linux operating system.
 
+%package test
+Summary:    Test Scripts for Connection Manager
+Group:      Development/Tools
+Requires:   %{name} = %{version}-%{release}
+Requires:   dbus-python
+Requires:   pygobject2
+Requires:   python-xml
+
+%description test
+Scripts for testing Connman and its functionality
+
 %prep
 %setup -q
 
@@ -31,7 +42,8 @@ cp %{SOURCE1001} .
             --localstatedir=/var \
             --enable-threads \
             --enable-tizen-ext \
-            --enable-wifi=builtin
+            --enable-wifi=builtin \
+            --enable-test
 
 
 make %{?jobs:-j%jobs}
@@ -80,3 +92,7 @@ chmod 600 /var/lib/connman/settings
 %{_sysconfdir}/rc.d/init.d/connman
 %{_sysconfdir}/rc.d/rc3.d/S61connman
 %{_sysconfdir}/rc.d/rc5.d/S61connman
+
+%files test
+%defattr(-,root,root,-)
+%{_libdir}/%{name}/test/*
