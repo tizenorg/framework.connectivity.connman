@@ -1,19 +1,10 @@
-* Sun Jul 01 2012 Anas Nashif <anas.nashif@intel.com> 9763683
-- conditionally enable ofono
-
-* Fri Jun 22 2012 Chris E Ferron <chris.e.ferron@linux.intel.com> 56c0c97
-- systemd add
-
-* Fri Jun 15 2012 Anas Nashif <anas.nashif@intel.com> 0cad5b5
+* Fri Jun 15 2012 Anas Nashif <anas.nashif@intel.com> F_Tizen_20120522_2@ebd552d
 - install dbus files in /etc
 
-* Fri Jun 15 2012 Anas Nashif <anas.nashif@intel.com> ebd552d
-- install dbus files in /etc
-
-* Thu Jun 14 2012 arron.wang <arron.wang@intel.com> 518b9fc
+* Thu Jun 14 2012 arron.wang <arron.wang@intel.com> F_Tizen_20120522_2@518b9fc
 - Build with connman test script
 
-* Thu May 31 2012 Danny Jeongseok Seo <S.Seo@samsung.com> 30fe470
+* Thu May 31 2012 Danny Jeongseok Seo <S.Seo@samsung.com> F_Tizen_20120522_2@30fe470
 - Nitpick, file permission and clean up
 - Fix wifi_scan
 - Wi-Fi Enterprise SIM and AKA
@@ -22,24 +13,24 @@
 - ConnMan catch up to connman-stable 0.78.4
 - Update connman init script for supplicant 0.8
 
-* Wed May 30 2012 Ryan Ware <ryan.r.ware@intel.com> 29a9b6c
+* Wed May 30 2012 Ryan Ware <ryan.r.ware@intel.com> F_Tizen_20120522_2@29a9b6c
 - Add default Smack manifest for connman.spec
 
-* Tue May 22 2012 Prajwal Mohan <prajwal.karur.mohan@intel.com> c05d425
+* Tue May 22 2012 Prajwal Mohan <prajwal.karur.mohan@intel.com> F_Tizen_20120522_2@c05d425
 - Fixing copyright to 2012
 - Reverting Copyright file
 - Fixing Copyright file
 
-* Sun Apr 29 2012 Kim Kibum <kb0929.kim@samsung.com> 887b993
+* Sun Apr 29 2012 Kim Kibum <kb0929.kim@samsung.com> F_Tizen_20120522_2@887b993
 - upload tizen1.0 source
 
-* Wed Mar 14 2012 Yan Yin <yan.yin@intel.com> a93ce3e
+* Wed Mar 14 2012 Yan Yin <yan.yin@intel.com> F_Tizen_20120522_2@a93ce3e
 - update for beta universally
 
-* Fri Feb 10 2012 Danny Jeongseok Seo <s.seo@samsung.com> 9f0e4de
+* Fri Feb 10 2012 Danny Jeongseok Seo <s.seo@samsung.com> F_Tizen_20120522_2@9f0e4de
 - Release TIZEN beta
 
-* Fri Jan 06 2012 Kibum Kim <kb0929.kim@samsung.com> 43669ce
+* Fri Jan 06 2012 Kibum Kim <kb0929.kim@samsung.com> F_Tizen_20120522_2@43669ce
 - Git init
 [ Eunkyoung Kim ]
 - Initial empty repository

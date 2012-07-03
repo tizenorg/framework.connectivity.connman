@@ -49,13 +49,11 @@ cp %{SOURCE1001} .
 
 ./autogen.sh
 
-%configure --enable-threads \
+./configure --prefix=/usr \
+            --localstatedir=/var \
+            --enable-threads \
             --enable-tizen-ext \
             --enable-wifi=builtin \
-%if 0%{?enable_ofono}
-            --enable-ofono=builtin \
-            --enable-telephony=no \
-%endif
             --enable-test \
             --with-systemdunitdir=%{_libdir}/systemd/system
 
