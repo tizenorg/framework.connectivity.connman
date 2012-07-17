@@ -89,10 +89,10 @@ cp src/connman.conf %{buildroot}%{_sysconfdir}/dbus-1/system.d/
 %post
 systemctl daemon-reload
 systemctl restart connman.service
- 
+
 %preun
 systemctl stop connman.service
- 
+
 %postun
 systemctl daemon-reload
 
