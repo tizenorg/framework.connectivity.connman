@@ -1,3 +1,7 @@
+* Tue Jul 17 2012 William Douglas <william.douglas@intel.com> ConnMan1.x_migration@3810e60
+[ William Douglas ]
+- Create changelog update.
+
 * Fri Jun 15 2012 Anas Nashif <anas.nashif@intel.com> F_Tizen_20120522_2@ebd552d
 - install dbus files in /etc
 
