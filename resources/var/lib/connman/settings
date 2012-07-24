@@ -9,7 +9,7 @@ Enable=false
 Enable=false
 
 [Wired]
-Enable=false
+Enable=true
 
 [3G]
 Enable=true

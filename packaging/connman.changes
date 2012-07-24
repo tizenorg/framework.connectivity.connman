@@ -1,3 +1,6 @@
+* Tue Jul 24 2012 Brad Peters <brad.t.peters@intel.com>
+- Enabling Ethernet networking by default
+
 * Tue Jul 17 2012 William Douglas <william.douglas@intel.com> ConnMan1.x_migration@3810e60
 [ William Douglas ]
 - Create changelog update.
