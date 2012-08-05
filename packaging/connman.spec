@@ -1,7 +1,7 @@
 Name:           connman
 Version:        0.78.4_81
 Release:        1
-License:        GPLv2
+License:        GPL-2.0
 Summary:        Connection Manager
 Url:            http://connman.net
 Group:          System/Networking
@@ -11,8 +11,8 @@ BuildRequires:  pkgconfig(dbus-1)
 BuildRequires:  pkgconfig(glib-2.0)
 BuildRequires:  pkgconfig(libiptc)
 BuildRequires:  pkgconfig(xtables)
-Requires:   systemd
-Requires(post):   systemd 
+Requires:       systemd
+Requires(post):   systemd
 Requires(preun):  systemd
 Requires(postun): systemd
 
@@ -23,19 +23,18 @@ within embedded devices running the Linux operating system.
 %package test
 Summary:        Test Scripts for Connection Manager
 Group:          Development/Tools
-Requires:       %{name} = %{version}-%{release}
+Requires:       %{name} = %{version}
 Requires:       dbus-python
-Requires:       pygobject2
+Requires:       pygobject
 Requires:       python-xml
 
 %description test
 Scripts for testing Connman and its functionality
 
-
 %package devel
 Summary:        Development Files for connman
 Group:          Development/Tools
-Requires:       %{name} = %{version}-%{release}
+Requires:       %{name} = %{version}
 
 %description devel
 Header files and development files for connman.
@@ -47,16 +46,17 @@ Header files and development files for connman.
 %build
 cp %{SOURCE1001} .
 
-./autogen.sh
+%autogen.sh
 
-./configure --prefix=/usr \
-            --localstatedir=/var \
+%configure \
             --enable-threads \
             --enable-tizen-ext \
             --enable-wifi=builtin \
+%if 0%{?enable_connman_features}
+            %connman_features \
+%endif
             --enable-test \
             --with-systemdunitdir=%{_libdir}/systemd/system
-
 
 make %{?_smp_mflags}
 

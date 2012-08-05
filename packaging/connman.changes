@@ -1,3 +1,6 @@
+* Sun Aug 05 2012 Anas Nashif <anas.nashif@intel.com> ConnMan1.x_migration@df9c8a6
+- clean up and enable macro for local features
+
 * Tue Jul 24 2012 Brad Peters <brad.t.peters@intel.com>
 - Enabling Ethernet networking by default
 
