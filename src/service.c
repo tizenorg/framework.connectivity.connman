@@ -6335,12 +6335,12 @@ void connman_service_create_ip6config(struct connman_service *service,
 }
 
 /**
- * __connman_service_lookup_from_network:
+ * connman_service_lookup_from_network:
  * @network: network structure
  *
  * Look up a service by network (reference count will not be increased)
  */
-struct connman_service *__connman_service_lookup_from_network(struct connman_network *network)
+struct connman_service *connman_service_lookup_from_network(struct connman_network *network)
 {
 	struct connman_service *service;
 	const char *ident, *group;
@@ -6661,7 +6661,7 @@ void __connman_service_update_from_network(struct connman_network *network)
 
 	DBG("network %p", network);
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 	if (service == NULL)
 		return;
 
@@ -6722,7 +6722,7 @@ void __connman_service_remove_from_network(struct connman_network *network)
 
 	DBG("network %p", network);
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 	if (service == NULL)
 		return;
 

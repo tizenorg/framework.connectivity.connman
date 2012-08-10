@@ -474,7 +474,7 @@ void connman_network_set_index(struct connman_network *network, int index)
 	struct connman_service *service;
 	struct connman_ipconfig *ipconfig;
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 	if (service == NULL)
 		goto done;
 
@@ -657,7 +657,7 @@ int connman_network_set_associating(struct connman_network *network,
 	if (associating == TRUE) {
 		struct connman_service *service;
 
-		service = __connman_service_lookup_from_network(network);
+		service = connman_service_lookup_from_network(network);
 		__connman_service_ipconfig_indicate_state(service,
 					CONNMAN_SERVICE_STATE_ASSOCIATION,
 					CONNMAN_IPCONFIG_TYPE_IPV4);
@@ -673,7 +673,7 @@ static void set_associate_error(struct connman_network *network)
 {
 	struct connman_service *service;
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 
 	__connman_service_indicate_error(service,
 					CONNMAN_SERVICE_ERROR_CONNECT_FAILED);
@@ -683,7 +683,7 @@ static void set_configure_error(struct connman_network *network)
 {
 	struct connman_service *service;
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 
 	__connman_service_indicate_error(service,
 					CONNMAN_SERVICE_ERROR_CONNECT_FAILED);
@@ -693,7 +693,7 @@ static void set_invalid_key_error(struct connman_network *network)
 {
 	struct connman_service *service;
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 
 	__connman_service_indicate_error(service,
 					CONNMAN_SERVICE_ERROR_INVALID_KEY);
@@ -703,7 +703,7 @@ static void set_connect_error(struct connman_network *network)
 {
 	struct connman_service *service;
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 
 	__connman_service_indicate_error(service,
 					CONNMAN_SERVICE_ERROR_CONNECT_FAILED);
@@ -715,7 +715,7 @@ void connman_network_set_ipv4_method(struct connman_network *network,
 	struct connman_service *service;
 	struct connman_ipconfig *ipconfig;
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 	if (service == NULL)
 		return;
 
@@ -732,7 +732,7 @@ void connman_network_set_ipv6_method(struct connman_network *network,
 	struct connman_service *service;
 	struct connman_ipconfig *ipconfig;
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 	if (service == NULL)
 		return;
 
@@ -783,7 +783,7 @@ void connman_network_clear_error(struct connman_network *network)
 	if (network->connecting == TRUE || network->associating == TRUE)
 		return;
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 	__connman_service_clear_error(service);
 }
 
@@ -801,7 +801,7 @@ static void set_configuration(struct connman_network *network,
 
 	connman_device_set_disconnected(network->device, FALSE);
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 	__connman_service_ipconfig_indicate_state(service,
 					CONNMAN_SERVICE_STATE_CONFIGURATION,
 					type);
@@ -813,7 +813,7 @@ static void dhcp_success(struct connman_network *network)
 	struct connman_ipconfig *ipconfig_ipv4;
 	int err;
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 	if (service == NULL)
 		goto err;
 
@@ -845,7 +845,7 @@ static void dhcp_failure(struct connman_network *network)
 {
 	struct connman_service *service;
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 	if (service == NULL)
 		return;
 
@@ -873,7 +873,7 @@ static int set_connected_fixed(struct connman_network *network)
 
 	DBG("");
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 
 	ipconfig_ipv4 = __connman_service_get_ip4config(service);
 
@@ -912,7 +912,7 @@ static void set_connected_manual(struct connman_network *network)
 
 	DBG("network %p", network);
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 
 	ipconfig = __connman_service_get_ip4config(service);
 
@@ -970,7 +970,7 @@ static int manual_ipv6_set(struct connman_network *network,
 
 	DBG("network %p ipv6 %p", network, ipconfig_ipv6);
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 	if (service == NULL)
 		return -EINVAL;
 
@@ -1037,7 +1037,7 @@ static gboolean dhcpv6_set_addresses(struct connman_network *network)
 	struct connman_ipconfig *ipconfig_ipv6;
 	int err = -EINVAL;
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 	if (service == NULL)
 		goto err;
 
@@ -1233,7 +1233,7 @@ static void autoconf_ipv6_set(struct connman_network *network)
 
 	network->connecting = FALSE;
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 	if (service == NULL)
 		return;
 
@@ -1262,7 +1262,7 @@ static void set_connected(struct connman_network *network)
 
 	network->connected = TRUE;
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 
 	ipconfig_ipv4 = __connman_service_get_ip4config(service);
 	ipconfig_ipv6 = __connman_service_get_ip6config(service);
@@ -1334,7 +1334,7 @@ static void set_disconnected(struct connman_network *network)
 
 	network->connected = FALSE;
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 
 	ipconfig_ipv4 = __connman_service_get_ip4config(service);
 	ipconfig_ipv6 = __connman_service_get_ip6config(service);
@@ -1519,7 +1519,7 @@ int connman_network_connect_hidden(struct connman_network *network,
 	int err = 0;
 	struct connman_service *service;
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 
 	DBG("network %p service %p user_data %p", network, service, user_data);
 
@@ -1637,7 +1637,7 @@ static int manual_ipv4_set(struct connman_network *network,
 	struct connman_service *service;
 	int err;
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 	if (service == NULL)
 		return -EINVAL;
 
@@ -1662,7 +1662,7 @@ int __connman_network_clear_ipconfig(struct connman_network *network,
 	enum connman_ipconfig_method method;
 	enum connman_ipconfig_type type;
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 	if (service == NULL)
 		return -EINVAL;
 
@@ -1758,7 +1758,7 @@ int connman_network_set_ipaddress(struct connman_network *network,
 
 	DBG("network %p", network);
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 	if (service == NULL)
 		return -EINVAL;
 
@@ -1885,7 +1885,7 @@ int connman_network_set_nameservers(struct connman_network *network,
 
 	DBG("network %p nameservers %s", network, nameservers);
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 	if (service == NULL)
 		return -EINVAL;
 
@@ -1913,7 +1913,7 @@ int connman_network_set_domain(struct connman_network *network,
 
 	DBG("network %p domain %s", network, domain);
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 	if (service == NULL)
 		return -EINVAL;
 
