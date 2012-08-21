@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -63,16 +63,12 @@ static int cable_connect(struct connman_network *network)
 {
 	DBG("network %p", network);
 
-	connman_network_set_connected(network, TRUE);
-
 	return 0;
 }
 
 static int cable_disconnect(struct connman_network *network)
 {
 	DBG("network %p", network);
-
-	connman_network_set_connected(network, FALSE);
 
 	return 0;
 }
@@ -85,6 +81,20 @@ static struct connman_network_driver cable_driver = {
 	.connect	= cable_connect,
 	.disconnect	= cable_disconnect,
 };
+
+#if defined TIZEN_EXT
+static void set_proxy(struct connman_network *network)
+{
+	const char http_proxy[] = "http_proxy";
+	char *proxy = NULL;
+
+	proxy = getenv(http_proxy);
+	DBG("Get system proxy: %s", proxy);
+
+	if(proxy != NULL && strlen(proxy) > 8)
+		connman_network_set_proxy(network, proxy);
+}
+#endif
 
 static void add_network(struct connman_device *device,
 			struct ethernet_data *ethernet)
@@ -110,6 +120,12 @@ static void add_network(struct connman_device *device,
 	connman_network_set_available(network, TRUE);
 
 	connman_network_set_group(network, "cable");
+
+	connman_network_set_connected(network, TRUE);
+
+#if defined TIZEN_EXT
+	set_proxy(network);
+#endif
 
 	ethernet->network = network;
 }
@@ -311,6 +327,7 @@ static struct connman_technology_driver tech_driver = {
 	.set_tethering		= tech_set_tethering,
 };
 
+#if defined TIZEN_EXT
 static int eth_probe(struct connman_technology *technology)
 {
 	return 0;
@@ -327,14 +344,17 @@ static struct connman_technology_driver eth_driver = {
 	.probe			= eth_probe,
 	.remove			= eth_remove,
 };
+#endif
 
 static int ethernet_init(void)
 {
 	int err;
 
+#if defined TIZEN_EXT
 	err = connman_technology_driver_register(&eth_driver);
 	if (err < 0)
 		return err;
+#endif
 
 	err = connman_network_driver_register(&cable_driver);
 	if (err < 0)
@@ -358,7 +378,9 @@ static int ethernet_init(void)
 
 static void ethernet_exit(void)
 {
+#if defined TIZEN_EXT
 	connman_technology_driver_unregister(&eth_driver);
+#endif
 
 	connman_technology_driver_unregister(&tech_driver);
 

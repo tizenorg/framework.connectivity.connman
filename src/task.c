@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -240,7 +240,7 @@ int connman_task_set_notify(struct connman_task *task, const char *member,
 	notify->func = function;
 	notify->data = user_data;
 
-	g_hash_table_replace(task->notify, g_strdup(member), notify);
+	g_hash_table_insert(task->notify, g_strdup(member), notify);
 
 	return 0;
 }

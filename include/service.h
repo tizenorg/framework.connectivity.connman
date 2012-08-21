@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -89,32 +89,44 @@ enum connman_service_proxy_method {
 struct connman_service;
 
 struct connman_service *connman_service_create(void);
-
-#define connman_service_ref(service) \
-	connman_service_ref_debug(service, __FILE__, __LINE__, __func__)
-
-#define connman_service_unref(service) \
-	connman_service_unref_debug(service, __FILE__, __LINE__, __func__)
-
-struct connman_service *
-connman_service_ref_debug(struct connman_service *service,
-			const char *file, int line, const char *caller);
-void connman_service_unref_debug(struct connman_service *service,
-			const char *file, int line, const char *caller);
+struct connman_service *connman_service_ref(struct connman_service *service);
+void connman_service_unref(struct connman_service *service);
 
 enum connman_service_type connman_service_get_type(struct connman_service *service);
 char *connman_service_get_interface(struct connman_service *service);
 
 const char *connman_service_get_domainname(struct connman_service *service);
 char **connman_service_get_nameservers(struct connman_service *service);
-char **connman_service_get_timeservers_config(struct connman_service *service);
-char **connman_service_get_timeservers(struct connman_service *service);
 void connman_service_set_proxy_method(struct connman_service *service, enum connman_service_proxy_method method);
 enum connman_service_proxy_method connman_service_get_proxy_method(struct connman_service *service);
 char **connman_service_get_proxy_servers(struct connman_service *service);
 char **connman_service_get_proxy_excludes(struct connman_service *service);
 const char *connman_service_get_proxy_url(struct connman_service *service);
 const char *connman_service_get_proxy_autoconfig(struct connman_service *service);
+
+#if defined TIZEN_EXT
+/*
+ * Description: TIZEN implements system global connection management.
+ *              It's only for PDP (cellular) bearer. Wi-Fi is managed by ConnMan automatically.
+ *              Reference count can help to manage open/close connection requests by each application.
+ */
+
+/*
+ * Increase reference count of user-initiated packet data network connection
+ */
+void connman_service_user_initiated_pdn_connection_ref(struct connman_service *service);
+
+/*
+ * Decrease reference count of user initiated packet data network connection and return TRUE if counter is zero.
+ */
+connman_bool_t connman_service_user_initiated_pdn_connection_unref_and_test(struct connman_service *service);
+
+/*
+ * Test reference count of user initiated packet data network connection and return TRUE if counter is zero.
+ * No impact to reference count
+ */
+connman_bool_t connman_service_is_no_ref_user_initiated_pdn_connection(struct connman_service *service);
+#endif
 
 #ifdef __cplusplus
 }

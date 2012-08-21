@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -231,6 +231,34 @@ dbus_bool_t connman_dbus_property_changed_basic(const char *path,
 	return TRUE;
 }
 
+#if defined TIZEN_EXT
+/*
+ * Description: Extends state_changed signal to notify service error cause
+ */
+dbus_bool_t connman_dbus_service_property_changed_with_error_cause(const char *path,
+			const char *interface, const char *key1, int type1, void *val1,
+			const char *key2, int type2, void *val2)
+{
+	DBusMessage *signal;
+	DBusMessageIter iter;
+
+	if (path == NULL)
+		return FALSE;
+
+	signal = dbus_message_new_signal(path, interface, "PropertyChanged");
+	if (signal == NULL)
+		return FALSE;
+
+	dbus_message_iter_init_append(signal, &iter);
+	connman_dbus_property_append_basic(&iter, key1, type1, val1);
+	connman_dbus_property_append_basic(&iter, key2, type2, val2);
+
+	g_dbus_send_message(connection, signal);
+
+	return TRUE;
+}
+#endif
+
 dbus_bool_t connman_dbus_property_changed_dict(const char *path,
 				const char *interface, const char *key,
 			connman_dbus_append_cb_t function, void *user_data)
@@ -362,31 +390,37 @@ dbus_bool_t connman_dbus_setting_changed_array(const char *owner,
 	return TRUE;
 }
 
-dbus_bool_t __connman_dbus_append_objpath_dict_array(DBusMessage *msg,
-		connman_dbus_append_cb_t function, void *user_data)
-{
-	DBusMessageIter iter, array;
+#if defined TIZEN_EXT
+/*
+ * August 22nd, 2011. TIZEN
+ *
+ * This part is added to send a DBus signal which means scan is completed
+ * because scan UX of a Wi-Fi setting application has an active scan procedure
+ * and it needs scan complete signal whether success or not
+ */
 
-	if (msg == NULL || function == NULL)
+dbus_bool_t connman_dbus_scan_completed_basic(const char *path,
+				const char *interface, int type, void *val)
+{
+	DBusMessage *signal;
+	DBusMessageIter iter;
+
+	if (path == NULL)
 		return FALSE;
 
-	dbus_message_iter_init_append(msg, &iter);
-	dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
-			DBUS_STRUCT_BEGIN_CHAR_AS_STRING
-			DBUS_TYPE_OBJECT_PATH_AS_STRING
-			DBUS_TYPE_ARRAY_AS_STRING
-				DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
-					DBUS_TYPE_STRING_AS_STRING
-					DBUS_TYPE_VARIANT_AS_STRING
-				DBUS_DICT_ENTRY_END_CHAR_AS_STRING
-			DBUS_STRUCT_END_CHAR_AS_STRING, &array);
+	signal = dbus_message_new_signal(path, interface, "ScanCompleted");
+	if (signal == NULL)
+		return FALSE;
 
-	function(&array, user_data);
+	dbus_message_iter_init_append(signal, &iter);
+	
+	dbus_message_iter_append_basic(&iter, type, val);
 
-	dbus_message_iter_close_container(&iter, &array);
+	g_dbus_send_message(connection, signal);
 
 	return TRUE;
 }
+#endif
 
 DBusConnection *connman_dbus_get_connection(void)
 {

@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
  *  Copyright (C) 2010 Nokia Corporation and/or its subsidiary(-ies).
  *  Copyright (C) 2011  BWM Car IT GmbH. All rights reserved.
  *
@@ -43,6 +43,8 @@
 
 #include "mcc.h"
 
+#define uninitialized_var(x) x = x
+
 #define OFONO_SERVICE			"org.ofono"
 
 #define OFONO_MANAGER_INTERFACE		OFONO_SERVICE ".Manager"
@@ -81,48 +83,13 @@ enum ofono_api {
  *   powered -> SubscriberIdentity or Online = True -> gprs, context ->
  *     attached -> netreg -> ready
  *
- * Depending on the modem type, this plugin will behave differently.
+ * Enabling and disabling modems are steered through the rfkill
+ * interface. That means when ConnMan toggles the rfkill bit oFono
+ * will add or remove the modems.
  *
- * GSM working flow:
- *
- * When a new modem appears, the plugin always powers it up. This
- * allows the plugin to create a connman_device. The core will call
- * modem_enable() if the technology is enabled. modem_enable() will
- * then set the modem online. If the technology is disabled then
- * modem_disable() will just set the modem offline. The modem is
- * always kept powered all the time.
- *
- * After setting the modem online the plugin waits for the
- * ConnectionManager and ConnectionContext to appear. When the context
- * signals that it is attached and the NetworkRegistration interface
- * appears, a new Service will be created and registered at the core.
- *
- * When asked to connect to the network (network_connect()) the plugin
- * will set the Active property on the context. If this operation is
- * successful the modem is connected to the network. oFono will inform
- * the plugin about IP configuration through the updating the context's
- * properties.
- *
- * CDMA working flow:
- *
- * When a new modem appears, the plugin always powers it up. This
- * allows the plugin to create connman_device either using IMSI either
- * using modem Serial if the modem got a SIM interface or not.
- *
- * As for GSM, the core will call modem_enable() if the technology
- * is enabled. modem_enable() will then set the modem online.
- * If the technology is disabled then modem_disable() will just set the
- * modem offline. The modem is always kept powered all the time.
- *
- * After setting the modem online the plugin waits for CdmaConnectionManager
- * interface to appear. Then, once CdmaNetworkRegistration appears, a new
- * Service will be created and registered at the core.
- *
- * When asked to connect to the network (network_connect()) the plugin
- * will power up the CdmaConnectionManager interface.
- * If the operation is successful the modem is connected to the network.
- * oFono will inform the plugin about IP configuration through the
- * updating CdmaConnectionManager settings properties.
+ * ConnMan will always power up (set Powered and Online) the
+ * modems. No need to power them down because this will be done
+ * through the rfkill inteface.
  */
 
 static DBusConnection *connection;
@@ -170,7 +137,6 @@ struct modem_data {
 	/* ConnectionContext Interface */
 	connman_bool_t active;
 	connman_bool_t set_active;
-	connman_bool_t valid_apn; /* APN is 'valid' if length > 0 */
 
 	/* SimManager Interface */
 	char *imsi;
@@ -259,12 +225,6 @@ static void set_connected(struct modem_data *modem)
 	connman_bool_t setip = FALSE;
 
 	DBG("%s", modem->path);
-
-	if (modem->context->index < 0 ||
-			modem->context->ipv4_address == NULL) {
-		connman_error("Invalid index and/or address");
-		return;
-	}
 
 	connman_network_set_index(modem->network, modem->context->index);
 
@@ -838,7 +798,7 @@ static void extract_ipv6_settings(DBusMessageIter *array,
 {
 	DBusMessageIter dict;
 	char *address = NULL, *gateway = NULL;
-	unsigned char prefix_length = 0;
+	unsigned char prefix_length;
 	char *nameservers = NULL;
 	const char *interface = NULL;
 	int index = -1;
@@ -941,7 +901,7 @@ static connman_bool_t ready_to_create_device(struct modem_data *modem)
 static void create_device(struct modem_data *modem)
 {
 	struct connman_device *device;
-	char *ident = NULL;
+	char *uninitialized_var(ident);
 
 	DBG("%s", modem->path);
 
@@ -1066,7 +1026,7 @@ static void remove_network(struct modem_data *modem)
 static int add_cm_context(struct modem_data *modem, const char *context_path,
 				DBusMessageIter *dict)
 {
-	const char *context_type = NULL;
+	const char *context_type;
 	struct network_context *context = NULL;
 	connman_bool_t active = FALSE;
 
@@ -1111,17 +1071,8 @@ static int add_cm_context(struct modem_data *modem, const char *context_path,
 			dbus_message_iter_get_basic(&value, &active);
 
 			DBG("%s Active %d", modem->path, active);
-		} else if (g_str_equal(key, "AccessPointName") == TRUE) {
-			const char *apn;
-
-			dbus_message_iter_get_basic(&value, &apn);
-			if (apn != NULL && strlen(apn) > 0)
-				modem->valid_apn = TRUE;
-			else
-				modem->valid_apn = FALSE;
-
-			DBG("%s AccessPointName '%s'", modem->path, apn);
 		}
+
 		dbus_message_iter_next(dict);
 	}
 
@@ -1134,12 +1085,6 @@ static int add_cm_context(struct modem_data *modem, const char *context_path,
 	modem->active = active;
 
 	g_hash_table_replace(context_hash, g_strdup(context_path), modem);
-
-	if (modem->valid_apn == TRUE && modem->attached == TRUE &&
-			has_interface(modem->interfaces,
-				OFONO_API_NETREG) == TRUE) {
-		add_network(modem);
-	}
 
 	return 0;
 }
@@ -1157,11 +1102,6 @@ static void remove_cm_context(struct modem_data *modem,
 
 	network_context_free(modem->context);
 	modem->context = NULL;
-
-	modem->valid_apn = FALSE;
-
-	if (modem->network != NULL)
-		remove_network(modem);
 }
 
 static gboolean context_changed(DBusConnection *connection,
@@ -1209,39 +1149,6 @@ static gboolean context_changed(DBusConnection *connection,
 			set_connected(modem);
 		else
 			set_disconnected(modem);
-	} else if (g_str_equal(key, "AccessPointName") == TRUE) {
-		const char *apn;
-
-		dbus_message_iter_get_basic(&value, &apn);
-
-		DBG("%s AccessPointName %s", modem->path, apn);
-
-		if (apn != NULL && strlen(apn) > 0) {
-			modem->valid_apn = TRUE;
-
-			if (modem->network != NULL)
-				return TRUE;
-
-			if (modem->attached == FALSE)
-				return TRUE;
-
-			if (has_interface(modem->interfaces,
-					OFONO_API_NETREG) == FALSE) {
-				return TRUE;
-			}
-
-			add_network(modem);
-
-			if (modem->active == TRUE)
-				set_connected(modem);
-		} else {
-			modem->valid_apn = FALSE;
-
-			if (modem->network == NULL)
-				return TRUE;
-
-			remove_network(modem);
-		}
 	}
 
 	return TRUE;
@@ -1580,8 +1487,7 @@ static void netreg_properties_reply(struct modem_data *modem,
 		return;
 	}
 
-	if (modem->valid_apn == TRUE)
-		add_network(modem);
+	add_network(modem);
 
 	if (modem->active == TRUE)
 		set_connected(modem);
@@ -2453,7 +2359,7 @@ static int network_disconnect(struct connman_network *network)
 }
 
 static struct connman_network_driver network_driver = {
-	.name		= "cellular",
+	.name		= "network",
 	.type		= CONNMAN_NETWORK_TYPE_CELLULAR,
 	.probe		= network_probe,
 	.remove		= network_remove,
@@ -2553,71 +2459,68 @@ static int ofono_init(void)
 					OFONO_SERVICE, ofono_connect,
 					ofono_disconnect, NULL, NULL);
 
-	modem_added_watch = g_dbus_add_signal_watch(connection, OFONO_SERVICE,
-						NULL, OFONO_MANAGER_INTERFACE,
+	modem_added_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
+						OFONO_MANAGER_INTERFACE,
 						MODEM_ADDED,
 						modem_added,
 						NULL, NULL);
 
-	modem_removed_watch = g_dbus_add_signal_watch(connection,
-						OFONO_SERVICE, NULL,
+	modem_removed_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
 						OFONO_MANAGER_INTERFACE,
 						MODEM_REMOVED,
 						modem_removed,
 						NULL, NULL);
 
-	modem_watch = g_dbus_add_signal_watch(connection, OFONO_SERVICE, NULL,
+	modem_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
 						OFONO_MODEM_INTERFACE,
 						PROPERTY_CHANGED,
 						modem_changed,
 						NULL, NULL);
 
-	cm_watch = g_dbus_add_signal_watch(connection, OFONO_SERVICE, NULL,
+	cm_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
 						OFONO_CM_INTERFACE,
 						PROPERTY_CHANGED,
 						cm_changed,
 						NULL, NULL);
 
-	sim_watch = g_dbus_add_signal_watch(connection, OFONO_SERVICE, NULL,
+	sim_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
 						OFONO_SIM_INTERFACE,
 						PROPERTY_CHANGED,
 						sim_changed,
 						NULL, NULL);
 
-	context_added_watch = g_dbus_add_signal_watch(connection,
-						OFONO_SERVICE, NULL,
+	context_added_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
 						OFONO_CM_INTERFACE,
 						CONTEXT_ADDED,
 						cm_context_added,
 						NULL, NULL);
 
-	context_removed_watch = g_dbus_add_signal_watch(connection,
-						OFONO_SERVICE, NULL,
+	context_removed_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
 						OFONO_CM_INTERFACE,
 						CONTEXT_REMOVED,
 						cm_context_removed,
 						NULL, NULL);
 
-	context_watch = g_dbus_add_signal_watch(connection, OFONO_SERVICE,
-						NULL, OFONO_CONTEXT_INTERFACE,
+	context_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
+						OFONO_CONTEXT_INTERFACE,
 						PROPERTY_CHANGED,
 						context_changed,
 						NULL, NULL);
 
-	netreg_watch = g_dbus_add_signal_watch(connection, OFONO_SERVICE, NULL,
+	netreg_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
 						OFONO_NETREG_INTERFACE,
 						PROPERTY_CHANGED,
 						netreg_changed,
 						NULL, NULL);
 
-	cdma_cm_watch = g_dbus_add_signal_watch(connection, OFONO_SERVICE,
-						NULL, OFONO_CDMA_CM_INTERFACE,
+	cdma_cm_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
+						OFONO_CDMA_CM_INTERFACE,
 						PROPERTY_CHANGED,
 						cdma_cm_changed,
 						NULL, NULL);
 
-	cdma_netreg_watch = g_dbus_add_signal_watch(connection, OFONO_SERVICE,
-						NULL, OFONO_CDMA_NETREG_INTERFACE,
+	cdma_netreg_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
+						OFONO_CDMA_NETREG_INTERFACE,
 						PROPERTY_CHANGED,
 						cdma_netreg_changed,
 						NULL, NULL);

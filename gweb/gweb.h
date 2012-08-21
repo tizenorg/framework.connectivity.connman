@@ -2,7 +2,7 @@
  *
  *  Web service library with GLib integration
  *
- *  Copyright (C) 2009-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2009-2010  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -40,9 +40,6 @@ typedef struct _GWebParser GWebParser;
 
 typedef gboolean (*GWebResultFunc)(GWebResult *result, gpointer user_data);
 
-typedef gboolean (*GWebRouteFunc)(const char *addr, int ai_family,
-		int if_index, gpointer user_data);
-
 typedef gboolean (*GWebInputFunc)(const guint8 **data, gsize *length,
 							gpointer user_data);
 
@@ -54,8 +51,6 @@ GWeb *g_web_ref(GWeb *web);
 void g_web_unref(GWeb *web);
 
 void g_web_set_debug(GWeb *web, GWebDebugFunc func, gpointer user_data);
-
-gboolean g_web_supports_tls(void);
 
 gboolean g_web_set_proxy(GWeb *web, const char *proxy);
 
@@ -75,13 +70,9 @@ void g_web_set_close_connection(GWeb *web, gboolean enabled);
 gboolean g_web_get_close_connection(GWeb *web);
 
 guint g_web_request_get(GWeb *web, const char *url,
-				GWebResultFunc func, GWebRouteFunc route,
-				gpointer user_data);
+				GWebResultFunc func, gpointer user_data);
 guint g_web_request_post(GWeb *web, const char *url,
 				const char *type, GWebInputFunc input,
-				GWebResultFunc func, gpointer user_data);
-guint g_web_request_post_file(GWeb *web, const char *url,
-				const char *type, const char *file,
 				GWebResultFunc func, gpointer user_data);
 
 gboolean g_web_cancel_request(GWeb *web, guint id);

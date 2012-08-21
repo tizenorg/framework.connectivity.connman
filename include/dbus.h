@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -68,6 +68,11 @@ void connman_dbus_property_append_fixed_array(DBusMessageIter *iter,
 dbus_bool_t connman_dbus_property_changed_basic(const char *path,
 				const char *interface, const char *key,
 							int type, void *val);
+#if defined TIZEN_EXT
+dbus_bool_t connman_dbus_service_property_changed_with_error_cause(const char *path,
+				const char *interface, const char *key1, int type1, void *val1,
+				const char *key2, int type2, void *val2);
+#endif
 dbus_bool_t connman_dbus_property_changed_dict(const char *path,
 				const char *interface, const char *key,
 			connman_dbus_append_cb_t function, void *user_data);
@@ -86,6 +91,17 @@ dbus_bool_t connman_dbus_setting_changed_array(const char *owner,
 				const char *path, const char *key, int type,
 				connman_dbus_append_cb_t function,
 				void *user_data);
+#if defined TIZEN_EXT
+/*
+ * August 22nd, 2011. TIZEN
+ *
+ * This part is added to send a DBus signal which means scan is completed
+ * because scan UX of a Wi-Fi setting application has an active scan procedure
+ * and it needs scan complete signal whether success or not
+ */
+dbus_bool_t connman_dbus_scan_completed_basic(const char *path,
+				const char *interface,int type, void *val);
+#endif
 
 static inline void connman_dbus_dict_open(DBusMessageIter *iter,
 							DBusMessageIter *dict)

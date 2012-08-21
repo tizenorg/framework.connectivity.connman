@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -42,6 +42,8 @@ enum {
 	NM_STATE_CONNECTED_GLOBAL = 70
 };
 
+#define NM_STATE_CONNECTED NM_STATE_CONNECTED_GLOBAL
+
 #define NM_SERVICE    "org.freedesktop.NetworkManager"
 #define NM_PATH       "/org/freedesktop/NetworkManager"
 #define NM_INTERFACE  NM_SERVICE
@@ -49,14 +51,11 @@ enum {
 #define DBUS_PROPERTIES_INTERFACE	"org.freedesktop.DBus.Properties"
 
 static DBusConnection *connection = NULL;
-static struct connman_service *current_service = NULL;
-static dbus_uint32_t nm_state = NM_STATE_UNKNOWN;
+static dbus_uint32_t state = NM_STATE_UNKNOWN;
 
 static void state_changed(dbus_uint32_t state)
 {
 	DBusMessage *signal;
-
-	DBG("state %d", state);
 
 	signal = dbus_message_new_signal(NM_PATH, NM_INTERFACE,
 						"StateChanged");
@@ -64,7 +63,7 @@ static void state_changed(dbus_uint32_t state)
 		return;
 
 	dbus_message_append_args(signal, DBUS_TYPE_UINT32, &state,
-						DBUS_TYPE_INVALID);
+				DBUS_TYPE_INVALID);
 
 	g_dbus_send_message(connection, signal);
 }
@@ -74,8 +73,6 @@ static void properties_changed(dbus_uint32_t state)
 	const char *key = "State";
 	DBusMessageIter iter, dict, dict_entry, dict_val;
 	DBusMessage *signal;
-
-	DBG("state %d", state);
 
 	signal = dbus_message_new_signal(NM_PATH, NM_INTERFACE,
 						"PropertiesChanged");
@@ -110,75 +107,22 @@ static void properties_changed(dbus_uint32_t state)
 
 static void default_changed(struct connman_service *service)
 {
-	DBG("service %p", service);
-
-	if (service == NULL)
-		nm_state = NM_STATE_DISCONNECTED;
+	if (service != NULL)
+		state = NM_STATE_CONNECTED;
 	else
-		nm_state = NM_STATE_CONNECTED_LOCAL;
+		state = NM_STATE_DISCONNECTED;
 
-	state_changed(nm_state);
-	properties_changed(nm_state);
+	DBG("%p %d", service, state);
 
-	current_service = service;
-}
+	state_changed(state);
 
-static void service_state_changed(struct connman_service *service,
-					enum connman_service_state state)
-{
-	DBG("service %p state %d", service, state);
-
-	if (current_service == NULL || current_service != service)
-		return;
-
-	switch (state) {
-	case CONNMAN_SERVICE_STATE_UNKNOWN:
-		nm_state = NM_STATE_UNKNOWN;
-		break;
-	case CONNMAN_SERVICE_STATE_FAILURE:
-	case CONNMAN_SERVICE_STATE_IDLE:
-		nm_state = NM_STATE_DISCONNECTED;
-		break;
-	case CONNMAN_SERVICE_STATE_ASSOCIATION:
-	case CONNMAN_SERVICE_STATE_CONFIGURATION:
-		nm_state = NM_STATE_CONNECTING;
-		break;
-	case CONNMAN_SERVICE_STATE_READY:
-		nm_state = NM_STATE_CONNECTED_LOCAL;
-		break;
-	case CONNMAN_SERVICE_STATE_ONLINE:
-		nm_state = NM_STATE_CONNECTED_GLOBAL;
-		break;
-	case CONNMAN_SERVICE_STATE_DISCONNECT:
-		nm_state = NM_STATE_DISCONNECTING;
-		break;
-	}
-
-	state_changed(nm_state);
-	properties_changed(nm_state);
-}
-
-static void offline_mode(connman_bool_t enabled)
-{
-	DBG("enabled %d", enabled);
-
-	if (enabled == TRUE)
-		nm_state = NM_STATE_ASLEEP;
-	else
-		nm_state = NM_STATE_DISCONNECTED;
-
-	state_changed(nm_state);
-	properties_changed(nm_state);
-
-	current_service = NULL;
+	properties_changed(state);
 }
 
 static struct connman_notifier notifier = {
-	.name			= "nmcompat",
-	.priority		= CONNMAN_NOTIFIER_PRIORITY_DEFAULT,
-	.default_changed	= default_changed,
-	.service_state_changed	= service_state_changed,
-	.offline_mode		= offline_mode,
+	.name		= "nmcompat",
+	.priority	= CONNMAN_NOTIFIER_PRIORITY_DEFAULT,
+	.default_changed= default_changed,
 };
 
 static DBusMessage *property_get(DBusConnection *conn,
@@ -186,20 +130,18 @@ static DBusMessage *property_get(DBusConnection *conn,
 {
 	const char *interface, *key;
 
-	dbus_message_get_args(msg, NULL, DBUS_TYPE_STRING, &interface,
-				DBUS_TYPE_STRING, &key, DBUS_TYPE_INVALID);
+	DBG("conn %p", conn);
+
+	dbus_message_get_args(msg, NULL,
+				DBUS_TYPE_STRING, &interface,
+				DBUS_TYPE_STRING, &key,
+				DBUS_TYPE_INVALID);
 
 	DBG("interface %s property %s", interface, key);
 
-	if (g_str_equal(interface, NM_INTERFACE) == FALSE)
-		return dbus_message_new_error(msg, DBUS_ERROR_FAILED,
-						"Unsupported interface");
-
-	if (g_str_equal(key, "State") == TRUE) {
+	if (g_strcmp0(key, "State") == 0) {
 		DBusMessage *reply;
 		DBusMessageIter iter, value;
-
-		DBG("state %d", nm_state);
 
 		reply = dbus_message_new_method_return(msg);
 		if (reply == NULL)
@@ -208,9 +150,10 @@ static DBusMessage *property_get(DBusConnection *conn,
 		dbus_message_iter_init_append(reply, &iter);
 
 		dbus_message_iter_open_container(&iter, DBUS_TYPE_VARIANT,
-					DBUS_TYPE_UINT32_AS_STRING, &value);
-		dbus_message_iter_append_basic(&value,
-						DBUS_TYPE_UINT32, &nm_state);
+						DBUS_TYPE_UINT32_AS_STRING,
+						&value);
+		dbus_message_iter_append_basic(&value, DBUS_TYPE_UINT32,
+						&state);
 		dbus_message_iter_close_container(&iter, &value);
 
 		return reply;
@@ -220,18 +163,14 @@ static DBusMessage *property_get(DBusConnection *conn,
 						"Unsupported property");
 }
 
-static const GDBusMethodTable methods[] = {
-	{ GDBUS_METHOD("Get",
-			GDBUS_ARGS({ "interface", "s" }, { "key", "s" }),
-			GDBUS_ARGS({ "property", "v" }), property_get) },
+static GDBusMethodTable methods[] = {
+	{ "Get", "ss",  "v",   property_get	},
 	{ },
 };
 
-static const GDBusSignalTable signals[] = {
-	{ GDBUS_SIGNAL("PropertiesChanged",
-			GDBUS_ARGS({ "properties", "a{sv}" })) },
-	{ GDBUS_SIGNAL("StateChanged",
-			GDBUS_ARGS({ "state", "u" })) },
+static GDBusSignalTable signals[] = {
+	{ "PropertiesChanged",	"a{sv}"	},
+	{ "StateChanged",	"u"	},
 	{ },
 };
 
@@ -244,7 +183,7 @@ static int nmcompat_init(void)
 		return -1;
 
 	if (g_dbus_request_name(connection, NM_SERVICE, NULL) == FALSE) {
-		connman_error("nmcompat: failed to register service");
+		connman_error("nmcompat: failed register service\n");
 		return -1;
 	}
 

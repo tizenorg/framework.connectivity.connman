@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2011  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -696,10 +696,7 @@ static int iptables_insert_rule(struct connman_iptables *table,
 	if (new_entry == NULL)
 		return -EINVAL;
 
-	if (builtin == -1)
-		chain_head = chain_head->next;
-
-	ret = iptables_add_entry(table, new_entry, chain_head, builtin);
+	ret = iptables_add_entry(table, new_entry, chain_head->next, builtin);
 	if (ret < 0)
 		g_free(new_entry);
 
@@ -765,7 +762,7 @@ static gboolean is_same_match(struct xt_entry_match *xt_e_m1,
 	return TRUE;
 }
 
-static GList *find_existing_rule(struct connman_iptables *table,
+static int iptables_delete_rule(struct connman_iptables *table,
 				struct ipt_ip *ip, char *chain_name,
 				char *target_name, struct xtables_target *xt_t,
 				struct xtables_match *xt_m,
@@ -776,22 +773,24 @@ static GList *find_existing_rule(struct connman_iptables *table,
 	struct xt_entry_match *xt_e_m = NULL;
 	struct connman_iptables_entry *entry;
 	struct ipt_entry *entry_test;
-	int builtin;
+	int builtin, removed;
+
+	removed = 0;
 
 	chain_head = find_chain_head(table, chain_name);
 	if (chain_head == NULL)
-		return NULL;
+		return -EINVAL;
 
 	chain_tail = find_chain_tail(table, chain_name);
 	if (chain_tail == NULL)
-		return NULL;
+		return -EINVAL;
 
 	if (!xt_t && !xt_m)
-		return NULL;
+		return -EINVAL;
 
 	entry_test = new_rule(ip, target_name, xt_t, xt_rm);
 	if (entry_test == NULL)
-		return NULL;
+		return -EINVAL;
 
 	if (xt_t != NULL)
 		xt_e_t = ipt_get_target(entry_test);
@@ -806,7 +805,7 @@ static GList *find_existing_rule(struct connman_iptables *table,
 	else
 		list = chain_head->next;
 
-	for (; list != chain_tail->prev; list = list->next) {
+	for (entry = NULL; list != chain_tail->prev; list = list->next) {
 		struct connman_iptables_entry *tmp;
 		struct ipt_entry *tmp_e;
 
@@ -834,43 +833,14 @@ static GList *find_existing_rule(struct connman_iptables *table,
 				continue;
 		}
 
+		entry = tmp;
 		break;
 	}
 
-	g_free(entry_test);
-
-	if (list != chain_tail->prev)
-		return list;
-
-	return NULL;
-}
-
-static int iptables_delete_rule(struct connman_iptables *table,
-				struct ipt_ip *ip, char *chain_name,
-				char *target_name, struct xtables_target *xt_t,
-				struct xtables_match *xt_m,
-				struct xtables_rule_match *xt_rm)
-{
-	struct connman_iptables_entry *entry;
-	GList *chain_tail, *list;
-	int builtin, removed;
-
-	removed = 0;
-
-	chain_tail = find_chain_tail(table, chain_name);
-	if (chain_tail == NULL)
+	if (entry == NULL) {
+		g_free(entry_test);
 		return -EINVAL;
-
-	list = find_existing_rule(table, ip, chain_name, target_name,
-							xt_t, xt_m, xt_rm);
-	if (list == NULL)
-		return -EINVAL;
-
-	entry = list->data;
-	if (entry == NULL)
-		return -EINVAL;
-
-	builtin = entry->builtin;
+	}
 
 	/* We have deleted a rule,
 	 * all references should be bumped accordingly */
@@ -904,28 +874,6 @@ static int iptables_delete_rule(struct connman_iptables *table,
 
 	return 0;
 }
-
-static int iptables_compare_rule(struct connman_iptables *table,
-				struct ipt_ip *ip, char *chain_name,
-				char *target_name, struct xtables_target *xt_t,
-				struct xtables_match *xt_m,
-				struct xtables_rule_match *xt_rm)
-{
-	struct connman_iptables_entry *entry;
-	GList *found;
-
-	found = find_existing_rule(table, ip, chain_name, target_name,
-							xt_t, xt_m, xt_rm);
-	if (found == NULL)
-		return -EINVAL;
-
-	entry = found->data;
-	if (entry == NULL)
-		return -EINVAL;
-
-	return 0;
-}
-
 
 static int iptables_change_policy(struct connman_iptables *table,
 					char *chain_name, char *policy)
@@ -1204,9 +1152,6 @@ static void table_cleanup(struct connman_iptables *table)
 	GList *list;
 	struct connman_iptables_entry *entry;
 
-	if (table == NULL)
-		return;
-
 	close(table->ipt_sock);
 
 	for (list = table->entries; list; list = list->next) {
@@ -1231,18 +1176,17 @@ static struct connman_iptables *iptables_init(char *table_name)
 	DBG("%s", table_name);
 
 	if (xtables_insmod("ip_tables", NULL, TRUE) != 0)
-		return NULL;
+		goto err;
 
 	module = g_strconcat("iptable_", table_name, NULL);
 	if (module == NULL)
-		return NULL;
+		goto err;
 
-	if (xtables_insmod(module, NULL, TRUE) != 0) {
-		g_free(module);
-		return NULL;
-	}
+	if (xtables_insmod(module, NULL, TRUE) != 0)
+		goto err;
 
 	g_free(module);
+	module = NULL;
 
 	table = g_hash_table_lookup(table_hash, table_name);
 	if (table != NULL)
@@ -1295,6 +1239,8 @@ static struct connman_iptables *iptables_init(char *table_name)
 	return table;
 
 err:
+	g_free(module);
+
 	table_cleanup(table);
 
 	return NULL;
@@ -1302,7 +1248,6 @@ err:
 
 static struct option iptables_opts[] = {
 	{.name = "append",        .has_arg = 1, .val = 'A'},
-	{.name = "compare",       .has_arg = 1, .val = 'C'},
 	{.name = "delete",        .has_arg = 1, .val = 'D'},
 	{.name = "flush-chain",   .has_arg = 1, .val = 'F'},
 	{.name = "insert",        .has_arg = 1, .val = 'I'},
@@ -1469,43 +1414,6 @@ done:
 	return xt_m;
 }
 
-static int parse_ip_and_mask(const char *str, struct in_addr *ip, struct in_addr *mask)
-{
-	char **tokens;
-	uint32_t prefixlength;
-	uint32_t tmp;
-	int err;
-
-	tokens = g_strsplit(str, "/", 2);
-	if (tokens == NULL)
-		return -1;
-
-	if (!inet_pton(AF_INET, tokens[0], ip)) {
-		err = -1;
-		goto out;
-	}
-
-	if (tokens[1] != NULL) {
-		prefixlength = strtol(tokens[1], NULL, 10);
-		if (prefixlength > 31) {
-			err = -1;
-			goto out;
-		}
-
-		tmp = ~(0xffffffff >> prefixlength);
-	} else {
-		tmp = 0xffffffff;
-	}
-
-	mask->s_addr = htonl(tmp);
-	ip->s_addr = ip->s_addr & mask->s_addr;
-	err = 0;
-out:
-	g_strfreev(tokens);
-
-	return err;
-}
-
 static int iptables_command(int argc, char *argv[])
 {
 	struct connman_iptables *table;
@@ -1516,7 +1424,8 @@ static int iptables_command(int argc, char *argv[])
 	char *table_name, *chain, *new_chain, *match_name, *target_name;
 	char *flush_chain, *delete_chain, *policy;
 	int c, ret, in_len, out_len;
-	gboolean dump, invert, insert, delete, compare;
+	gboolean dump, invert, insert, delete;
+	struct in_addr src, dst;
 
 	if (argc == 0)
 		return -EINVAL;
@@ -1525,8 +1434,7 @@ static int iptables_command(int argc, char *argv[])
 	invert = FALSE;
 	insert = FALSE;
 	delete = FALSE;
-	compare = FALSE;
-	chain = new_chain = match_name = target_name = NULL;
+	table_name = chain = new_chain = match_name = target_name = NULL;
 	flush_chain = delete_chain = policy = NULL;
 	memset(&ip, 0, sizeof(struct ipt_ip));
 	table = NULL;
@@ -1540,29 +1448,19 @@ static int iptables_command(int argc, char *argv[])
 
 	optind = 0;
 
-	while ((c = getopt_long(argc, argv,
-					"-A:C:D:F:I:L::N:P:X:d:j:i:m:o:s:t:",
+	while ((c = getopt_long(argc, argv, "-A:F:I:L::N:P:X:d:j:i:m:o:s:t:",
 					iptables_globals.opts, NULL)) != -1) {
 		switch (c) {
 		case 'A':
-			/* It is either -A, -C, -D or -I at once */
+			/* It is either -A, -D or -I at once */
 			if (chain)
 				goto out;
 
 			chain = optarg;
-			break;
-
-		case 'C':
-			/* It is either -A, -C, -D or -I at once */
-			if (chain)
-				goto out;
-
-			chain = optarg;
-			compare = TRUE;
 			break;
 
 		case 'D':
-			/* It is either -A, -C, -D or -I at once */
+			/* It is either -A, -D or -I at once */
 			if (chain)
 				goto out;
 
@@ -1575,7 +1473,7 @@ static int iptables_command(int argc, char *argv[])
 			break;
 
 		case 'I':
-			/* It is either -A, -C, -D or -I at once */
+			/* It is either -A, -D or -I at once */
 			if (chain)
 				goto out;
 
@@ -1605,8 +1503,11 @@ static int iptables_command(int argc, char *argv[])
 			break;
 
 		case 'd':
-			if (!parse_ip_and_mask(optarg, &ip.dst, &ip.dmsk))
+			if (!inet_pton(AF_INET, optarg, &dst))
 				break;
+
+			ip.dst = dst;
+			inet_pton(AF_INET, "255.255.255.255", &ip.dmsk);
 
 			if (invert)
 				ip.invflags |= IPT_INV_DSTIP;
@@ -1658,8 +1559,11 @@ static int iptables_command(int argc, char *argv[])
 			break;
 
 		case 's':
-			if (!parse_ip_and_mask(optarg, &ip.src, &ip.smsk))
+			if (!inet_pton(AF_INET, optarg, &src))
 				break;
+
+			ip.src = src;
+			inet_pton(AF_INET, "255.255.255.255", &ip.smsk);
 
 			if (invert)
 				ip.invflags |= IPT_INV_SRCIP;
@@ -1821,12 +1725,6 @@ static int iptables_command(int argc, char *argv[])
 
 		if (xt_t == NULL)
 			goto out;
-
-		if (compare == TRUE) {
-			ret = iptables_compare_rule(table, &ip, chain,
-					target_name, xt_t, xt_m, xt_rm);
-			goto out;
-		}
 
 		if (delete == TRUE) {
 			DBG("Deleting %s to %s (match %s)\n",

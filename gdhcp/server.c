@@ -2,7 +2,7 @@
  *
  *  DHCP Server library with GLib integration
  *
- *  Copyright (C) 2009-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2009-2010  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -754,7 +754,7 @@ int g_dhcp_server_start(GDHCPServer *dhcp_server)
 		return 0;
 
 	listener_sockfd = dhcp_l3_socket(SERVER_PORT,
-					dhcp_server->interface, AF_INET);
+				dhcp_server->interface);
 	if (listener_sockfd < 0)
 		return -EIO;
 

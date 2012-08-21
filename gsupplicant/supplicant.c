@@ -2,7 +2,7 @@
  *
  *  WPA supplicant library with GLib integration
  *
- *  Copyright (C) 2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2010  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -182,18 +182,12 @@ struct g_supplicant_bss {
 	dbus_int16_t signal;
 	GSupplicantMode mode;
 	GSupplicantSecurity security;
-	dbus_bool_t rsn_selected;
-	unsigned int wpa_keymgmt;
-	unsigned int wpa_pairwise;
-	unsigned int wpa_group;
-	unsigned int rsn_keymgmt;
-	unsigned int rsn_pairwise;
-	unsigned int rsn_group;
 	unsigned int keymgmt;
+	unsigned int pairwise;
+	unsigned int group;
 	dbus_bool_t privacy;
 	dbus_bool_t psk;
 	dbus_bool_t ieee8021x;
-	unsigned int wps_capabilities;
 };
 
 struct _GSupplicantNetwork {
@@ -209,7 +203,6 @@ struct _GSupplicantNetwork {
 	GSupplicantMode mode;
 	GSupplicantSecurity security;
 	dbus_bool_t wps;
-	unsigned int wps_capabilities;
 	GHashTable *bss_table;
 	GHashTable *config_table;
 };
@@ -436,21 +429,6 @@ static void remove_interface(gpointer data)
 	g_hash_table_destroy(interface->bss_mapping);
 	g_hash_table_destroy(interface->net_mapping);
 	g_hash_table_destroy(interface->network_table);
-
-	if (interface->scan_callback != NULL) {
-		SUPPLICANT_DBG("call interface %p callback %p scanning %d",
-				interface, interface->scan_callback,
-				interface->scanning);
-
-		interface->scan_callback(-EIO, interface, interface->scan_data);
-                interface->scan_callback = NULL;
-                interface->scan_data = NULL;
-
-		if (interface->scanning == TRUE) {
-			interface->scanning = FALSE;
-			callback_scan_finished(interface);
-		}
-	}
 
 	callback_interface_removed(interface);
 
@@ -762,9 +740,6 @@ unsigned int g_supplicant_interface_get_max_scan_ssids(
 	if (interface == NULL)
 		return 0;
 
-	if (interface->max_scan_ssids == 0)
-		return WPAS_MAX_SCAN_SSIDS;
-
 	return interface->max_scan_ssids;
 }
 
@@ -884,38 +859,44 @@ dbus_bool_t g_supplicant_network_get_wps(GSupplicantNetwork *network)
 	return network->wps;
 }
 
-dbus_bool_t g_supplicant_network_is_wps_active(GSupplicantNetwork *network)
+#if defined TIZEN_EXT
+/*
+ * Description: Network client requires additional wifi specific info
+ */
+const unsigned char *g_supplicant_network_get_bssid(GSupplicantNetwork *network)
 {
-	if (network == NULL)
-		return FALSE;
+	if (network == NULL || network->best_bss == NULL)
+		return NULL;
 
-	if (network->wps_capabilities & G_SUPPLICANT_WPS_CONFIGURED)
-		return TRUE;
-
-	return FALSE;
+	return (const unsigned char *)network->best_bss->bssid;
 }
 
-dbus_bool_t g_supplicant_network_is_wps_pbc(GSupplicantNetwork *network)
+unsigned int g_supplicant_network_get_maxrate(GSupplicantNetwork *network)
 {
-	if (network == NULL)
-		return FALSE;
+	if (network == NULL || network->best_bss == NULL)
+		return 0;
 
-	if (network->wps_capabilities & G_SUPPLICANT_WPS_PBC)
-		return TRUE;
-
-	return FALSE;
+	return network->best_bss->maxrate;
 }
 
-dbus_bool_t g_supplicant_network_is_wps_advertizing(GSupplicantNetwork *network)
+const char *g_supplicant_network_get_enc_mode(GSupplicantNetwork *network)
 {
-	if (network == NULL)
-		return FALSE;
+	if (network == NULL || network->best_bss == NULL)
+		return NULL;
 
-	if (network->wps_capabilities & G_SUPPLICANT_WPS_REGISTRAR)
-		return TRUE;
+	if ((network->best_bss->pairwise & G_SUPPLICANT_PAIRWISE_CCMP) &&
+	    (network->best_bss->pairwise & G_SUPPLICANT_PAIRWISE_TKIP))
+		return "mixed";
+	else if (network->best_bss->pairwise & G_SUPPLICANT_PAIRWISE_CCMP)
+		return "aes";
+	else if (network->best_bss->pairwise & G_SUPPLICANT_PAIRWISE_TKIP)
+		return "tkip";
+	else if (network->best_bss->security == G_SUPPLICANT_SECURITY_WEP)
+		return "wep";
 
-	return FALSE;
+	return "none";
 }
+#endif
 
 static void merge_network(GSupplicantNetwork *network)
 {
@@ -1053,43 +1034,25 @@ static void interface_network_removed(DBusMessageIter *iter, void *user_data)
 
 static char *create_name(unsigned char *ssid, int ssid_len)
 {
-	GString *string;
-	const gchar *remainder, *invalid;
-	int valid_bytes, remaining_bytes;
+	char *name;
+	int i;
 
 	if (ssid_len < 1 || ssid[0] == '\0')
+		name = NULL;
+	else
+		name = g_try_malloc0(ssid_len + 1);
+
+	if (name == NULL)
 		return g_strdup("");
 
-	string = NULL;
-	remainder = (const gchar *)ssid;
-	remaining_bytes = ssid_len;
-
-	while (remaining_bytes != 0) {
-		if (g_utf8_validate(remainder, remaining_bytes,
-					&invalid) == TRUE) {
-			break;
-		}
-
-		valid_bytes = invalid - remainder;
-
-		if (string == NULL)
-			string = g_string_sized_new(remaining_bytes);
-
-		g_string_append_len(string, remainder, valid_bytes);
-
-		/* append U+FFFD REPLACEMENT CHARACTER */
-		g_string_append(string, "\357\277\275");
-
-		remaining_bytes -= valid_bytes + 1;
-		remainder = invalid + 1;
+	for (i = 0; i < ssid_len; i++) {
+		if (g_ascii_isprint(ssid[i]))
+			name[i] = ssid[i];
+		else
+			name[i] = ' ';
 	}
 
-	if (string == NULL)
-		return g_strndup((const gchar *)ssid, ssid_len + 1);
-
-	g_string_append(string, remainder);
-
-	return g_string_free(string, FALSE);
+	return name;
 }
 
 static char *create_group(struct g_supplicant_bss *bss)
@@ -1119,23 +1082,19 @@ static char *create_group(struct g_supplicant_bss *bss)
 	return g_string_free(str, FALSE);
 }
 
-static void add_or_replace_bss_to_network(struct g_supplicant_bss *bss)
+static void add_bss_to_network(struct g_supplicant_bss *bss)
 {
 	GSupplicantInterface *interface = bss->interface;
 	GSupplicantNetwork *network;
 	char *group;
 
 	group = create_group(bss);
-	SUPPLICANT_DBG("New group created: %s", group);
-
 	if (group == NULL)
 		return;
 
 	network = g_hash_table_lookup(interface->network_table, group);
 	if (network != NULL) {
 		g_free(group);
-		SUPPLICANT_DBG("Network %s already exist", network->name);
-
 		goto done;
 	}
 
@@ -1158,7 +1117,9 @@ static void add_or_replace_bss_to_network(struct g_supplicant_bss *bss)
 	network->frequency = bss->frequency;
 	network->best_bss = bss;
 
-	SUPPLICANT_DBG("New network %s created", network->name);
+	network->wps = FALSE;
+	if ((bss->keymgmt & G_SUPPLICANT_KEYMGMT_WPS) != 0)
+		network->wps = TRUE;
 
 	network->bss_table = g_hash_table_new_full(g_str_hash, g_str_equal,
 							NULL, remove_bss);
@@ -1172,12 +1133,6 @@ static void add_or_replace_bss_to_network(struct g_supplicant_bss *bss)
 	callback_network_added(network);
 
 done:
-	/* We update network's WPS properties if only bss provides WPS. */
-	if ((bss->keymgmt & G_SUPPLICANT_KEYMGMT_WPS) != 0) {
-		network->wps = TRUE;
-		network->wps_capabilities |= bss->wps_capabilities;
-	}
-
 	if (bss->signal > network->signal) {
 		network->signal = bss->signal;
 		network->best_bss = bss;
@@ -1205,7 +1160,7 @@ static void bss_rates(DBusMessageIter *iter, void *user_data)
 
 static void bss_keymgmt(DBusMessageIter *iter, void *user_data)
 {
-	unsigned int *keymgmt = user_data;
+	struct g_supplicant_bss *bss = user_data;
 	const char *str = NULL;
 	int i;
 
@@ -1215,15 +1170,14 @@ static void bss_keymgmt(DBusMessageIter *iter, void *user_data)
 
 	for (i = 0; keymgmt_map[i].str != NULL; i++)
 		if (strcmp(str, keymgmt_map[i].str) == 0) {
-			SUPPLICANT_DBG("Keymgmt: %s", str);
-			*keymgmt |= keymgmt_map[i].val;
+			bss->keymgmt |= keymgmt_map[i].val;
 			break;
 		}
 }
 
 static void bss_group(DBusMessageIter *iter, void *user_data)
 {
-	unsigned int *group = user_data;
+	struct g_supplicant_bss *bss = user_data;
 	const char *str = NULL;
 	int i;
 
@@ -1233,15 +1187,14 @@ static void bss_group(DBusMessageIter *iter, void *user_data)
 
 	for (i = 0; group_map[i].str != NULL; i++)
 		if (strcmp(str, group_map[i].str) == 0) {
-			SUPPLICANT_DBG("Group: %s", str);
-			*group |= group_map[i].val;
+			bss->group |= group_map[i].val;
 			break;
 		}
 }
 
 static void bss_pairwise(DBusMessageIter *iter, void *user_data)
 {
-	unsigned int *pairwise = user_data;
+	struct g_supplicant_bss *bss = user_data;
 	const char *str = NULL;
 	int i;
 
@@ -1251,8 +1204,7 @@ static void bss_pairwise(DBusMessageIter *iter, void *user_data)
 
 	for (i = 0; pairwise_map[i].str != NULL; i++)
 		if (strcmp(str, pairwise_map[i].str) == 0) {
-			SUPPLICANT_DBG("Pairwise: %s", str);
-			*pairwise |= pairwise_map[i].val;
+			bss->pairwise |= pairwise_map[i].val;
 			break;
 		}
 }
@@ -1260,33 +1212,12 @@ static void bss_pairwise(DBusMessageIter *iter, void *user_data)
 static void bss_wpa(const char *key, DBusMessageIter *iter,
 			void *user_data)
 {
-	struct g_supplicant_bss *bss = user_data;
-	unsigned int value = 0;
-
-	SUPPLICANT_DBG("Key: %s", key);
-
-	if (g_strcmp0(key, "KeyMgmt") == 0) {
-		supplicant_dbus_array_foreach(iter, bss_keymgmt, &value);
-
-		if (bss->rsn_selected == TRUE)
-			bss->rsn_keymgmt = value;
-		else
-			bss->wpa_keymgmt = value;
-	} else if (g_strcmp0(key, "Group") == 0) {
-		supplicant_dbus_array_foreach(iter, bss_group, &value);
-
-		if (bss->rsn_selected == TRUE)
-			bss->rsn_group = value;
-		else
-			bss->wpa_group = value;
-	} else if (g_strcmp0(key, "Pairwise") == 0) {
-		supplicant_dbus_array_foreach(iter, bss_pairwise, &value);
-
-		if (bss->rsn_selected == TRUE)
-			bss->rsn_pairwise = value;
-		else
-			bss->wpa_pairwise = value;
-	}
+	if (g_strcmp0(key, "KeyMgmt") == 0)
+		supplicant_dbus_array_foreach(iter, bss_keymgmt, user_data);
+	else if (g_strcmp0(key, "Group") == 0)
+		supplicant_dbus_array_foreach(iter, bss_group, user_data);
+	else if (g_strcmp0(key, "Pairwise") == 0)
+		supplicant_dbus_array_foreach(iter, bss_pairwise, user_data);
 }
 
 static unsigned int get_tlv(unsigned char *ie, unsigned int ie_size,
@@ -1337,28 +1268,19 @@ static void bss_process_ies(DBusMessageIter *iter, void *user_data)
 	const unsigned char WPS_OUI[] = { 0x00, 0x50, 0xf2, 0x04 };
 	unsigned char *ie, *ie_end;
 	DBusMessageIter array;
-	unsigned int value;
 	int ie_len;
 
 #define WMM_WPA1_WPS_INFO 221
 #define WPS_INFO_MIN_LEN  6
 #define WPS_VERSION_TLV   0x104A
 #define WPS_STATE_TLV     0x1044
-#define WPS_METHODS_TLV   0x1012
-#define WPS_REGISTRAR_TLV 0x1041
 #define WPS_VERSION       0x10
-#define WPS_PBC           0x04
-#define WPS_PIN           0x00
-#define WPS_CONFIGURED    0x02
 
 	dbus_message_iter_recurse(iter, &array);
 	dbus_message_iter_get_fixed_array(&array, &ie, &ie_len);
 
 	if (ie == NULL || ie_len < 2)
 		return;
-
-	bss->wps_capabilities = 0;
-	bss->keymgmt = 0;
 
 	for (ie_end = ie + ie_len; ie < ie_end && ie + ie[1] + 1 <= ie_end;
 							ie += ie[1] + 2) {
@@ -1369,58 +1291,16 @@ static void bss_process_ies(DBusMessageIter *iter, void *user_data)
 
 		SUPPLICANT_DBG("IE: match WPS_OUI");
 
-		value = get_tlv(&ie[6], ie[1], WPS_STATE_TLV);
-		if (get_tlv(&ie[6], ie[1], WPS_VERSION_TLV) == WPS_VERSION &&
-								value != 0) {
+		if (get_tlv(&ie[6], ie[1],
+				WPS_VERSION_TLV) == WPS_VERSION &&
+			get_tlv(&ie[6], ie[1],
+				WPS_STATE_TLV) != 0)
 			bss->keymgmt |= G_SUPPLICANT_KEYMGMT_WPS;
-
-			if (value == WPS_CONFIGURED)
-				bss->wps_capabilities |=
-					G_SUPPLICANT_WPS_CONFIGURED;
-		}
-
-		value = get_tlv(&ie[6], ie[1], WPS_METHODS_TLV);
-		if (value != 0) {
-			if (GUINT16_FROM_BE(value) == WPS_PBC)
-				bss->wps_capabilities |= G_SUPPLICANT_WPS_PBC;
-			if (GUINT16_FROM_BE(value) == WPS_PIN)
-				bss->wps_capabilities |= G_SUPPLICANT_WPS_PIN;
-		} else
-			bss->wps_capabilities |=
-				G_SUPPLICANT_WPS_PBC | G_SUPPLICANT_WPS_PIN;
-
-		/* If the AP sends this it means it's advertizing
-		 * as a registrar and the WPS process is launched
-		 * on its side */
-		if (get_tlv(&ie[6], ie[1], WPS_REGISTRAR_TLV) != 0)
-			bss->wps_capabilities |= G_SUPPLICANT_WPS_REGISTRAR;
-
-		SUPPLICANT_DBG("WPS Methods 0x%x", bss->wps_capabilities);
 	}
 }
 
 static void bss_compute_security(struct g_supplicant_bss *bss)
 {
-	/*
-	 * Combining RSN and WPA keymgmt
-	 * We combine it since parsing IEs might have set something for WPS. */
-	bss->keymgmt |= bss->rsn_keymgmt | bss->wpa_keymgmt;
-
-	bss->ieee8021x = FALSE;
-	bss->psk = FALSE;
-
-	if (bss->keymgmt &
-			(G_SUPPLICANT_KEYMGMT_WPA_EAP |
-				G_SUPPLICANT_KEYMGMT_WPA_FT_EAP |
-				G_SUPPLICANT_KEYMGMT_WPA_EAP_256))
-		bss->ieee8021x = TRUE;
-
-	if (bss->keymgmt &
-			(G_SUPPLICANT_KEYMGMT_WPA_PSK |
-				G_SUPPLICANT_KEYMGMT_WPA_FT_PSK |
-				G_SUPPLICANT_KEYMGMT_WPA_PSK_256))
-		bss->psk = TRUE;
-
 	if (bss->ieee8021x == TRUE)
 		bss->security = G_SUPPLICANT_SECURITY_IEEE8021X;
 	else if (bss->psk == TRUE)
@@ -1430,7 +1310,6 @@ static void bss_compute_security(struct g_supplicant_bss *bss)
 	else
 		bss->security = G_SUPPLICANT_SECURITY_NONE;
 }
-
 
 static void bss_property(const char *key, DBusMessageIter *iter,
 							void *user_data)
@@ -1444,6 +1323,22 @@ static void bss_property(const char *key, DBusMessageIter *iter,
 
 	if (key == NULL)
 		return;
+
+	if (g_strcmp0(key, "WPA") == 0) {
+
+		/* WPA/RSN property can be updated:
+		 * - When WPS signal arrived at first with signal_bss_changed,
+		 * WPA/RSN related properties should be cleared.
+		 * - Consecutive WPA and RSN signals can be update properties
+		 * correctly.
+		 * - When bss added, it's not affect anything. */
+
+		bss->keymgmt = 0;
+		bss->group = 0;
+		bss->pairwise = 0;
+		bss->ieee8021x = FALSE;
+		bss->psk = FALSE;
+	}
 
 	if (g_strcmp0(key, "BSSID") == 0) {
 		DBusMessageIter array;
@@ -1515,14 +1410,21 @@ static void bss_property(const char *key, DBusMessageIter *iter,
 
 		dbus_message_iter_get_basic(iter, &privacy);
 		bss->privacy = privacy;
-	} else if (g_strcmp0(key, "RSN") == 0) {
-		bss->rsn_selected = TRUE;
-
+	} else if ((g_strcmp0(key, "RSN") == 0) ||
+			(g_strcmp0(key, "WPA") == 0)) {
 		supplicant_dbus_property_foreach(iter, bss_wpa, bss);
-	} else if (g_strcmp0(key, "WPA") == 0) {
-		bss->rsn_selected = FALSE;
 
-		supplicant_dbus_property_foreach(iter, bss_wpa, bss);
+		if (bss->keymgmt &
+			(G_SUPPLICANT_KEYMGMT_WPA_EAP |
+				G_SUPPLICANT_KEYMGMT_WPA_FT_EAP |
+				G_SUPPLICANT_KEYMGMT_WPA_EAP_256))
+			bss->ieee8021x = TRUE;
+
+		if (bss->keymgmt &
+			(G_SUPPLICANT_KEYMGMT_WPA_PSK |
+				G_SUPPLICANT_KEYMGMT_WPA_FT_PSK |
+				G_SUPPLICANT_KEYMGMT_WPA_PSK_256))
+			bss->psk = TRUE;
 	} else if (g_strcmp0(key, "IEs") == 0)
 		bss_process_ies(iter, bss);
 	else
@@ -1585,7 +1487,7 @@ static void interface_bss_added_with_keys(DBusMessageIter *iter,
 	supplicant_dbus_property_foreach(iter, bss_property, bss);
 
 	bss_compute_security(bss);
-	add_or_replace_bss_to_network(bss);
+	add_bss_to_network(bss);
 }
 
 static void interface_bss_added_without_keys(DBusMessageIter *iter,
@@ -1604,7 +1506,7 @@ static void interface_bss_added_without_keys(DBusMessageIter *iter,
 							bss_property, bss);
 
 	bss_compute_security(bss);
-	add_or_replace_bss_to_network(bss);
+	add_bss_to_network(bss);
 }
 
 static void update_signal(gpointer key, gpointer value,
@@ -2088,7 +1990,6 @@ static void signal_bss_changed(const char *path, DBusMessageIter *iter)
 {
 	GSupplicantInterface *interface;
 	GSupplicantNetwork *network;
-	GSupplicantSecurity old_security;
 	struct g_supplicant_bss *bss;
 
 	SUPPLICANT_DBG("");
@@ -2107,10 +2008,9 @@ static void signal_bss_changed(const char *path, DBusMessageIter *iter)
 
 	supplicant_dbus_property_foreach(iter, bss_property, bss);
 
-	old_security = network->security;
 	bss_compute_security(bss);
 
-	if (old_security != bss->security) {
+	if (bss->security != network->security) {
 		struct g_supplicant_bss *new_bss;
 
 		SUPPLICANT_DBG("New network security for %s", bss->ssid);
@@ -2135,7 +2035,7 @@ static void signal_bss_changed(const char *path, DBusMessageIter *iter)
 
 		g_hash_table_remove(interface->network_table, network->group);
 
-		add_or_replace_bss_to_network(new_bss);
+		add_bss_to_network(new_bss);
 
 		return;
 	}
@@ -2321,7 +2221,6 @@ static DBusHandlerResult g_supplicant_filter(DBusConnection *conn,
 
 struct supplicant_regdom {
 	GSupplicantCountryCallback callback;
-	const char *alpha2;
 	const void *user_data;
 };
 
@@ -2329,21 +2228,22 @@ static void country_result(const char *error,
 				DBusMessageIter *iter, void *user_data)
 {
 	struct supplicant_regdom *regdom = user_data;
-	int result = 0;
+	char *alpha2;
 
 	SUPPLICANT_DBG("Country setting result");
 
 	if (user_data == NULL)
 		return;
 
-	if (error != NULL) {
+	if (error == NULL) {
+		alpha2 = (char *)regdom->user_data;
+	} else {
 		SUPPLICANT_DBG("Country setting failure %s", error);
-		result = -EINVAL;
+		alpha2 = NULL;
 	}
 
 	if (regdom->callback)
-		regdom->callback(result, regdom->alpha2,
-					(void *) regdom->user_data);
+		regdom->callback(alpha2);
 
 	g_free(regdom);
 }
@@ -2351,9 +2251,11 @@ static void country_result(const char *error,
 static void country_params(DBusMessageIter *iter, void *user_data)
 {
 	struct supplicant_regdom *regdom = user_data;
+	const char *country;
 
-	dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING,
-							&regdom->alpha2);
+	country = regdom->user_data;
+
+	dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING, &country);
 }
 
 int g_supplicant_set_country(const char *alpha2,
@@ -2372,35 +2274,12 @@ int g_supplicant_set_country(const char *alpha2,
 		return -ENOMEM;
 
 	regdom->callback = callback;
-	regdom->alpha2 = alpha2;
 	regdom->user_data = user_data;
 
 	return supplicant_dbus_property_set(SUPPLICANT_PATH, SUPPLICANT_INTERFACE,
 					"Country", DBUS_TYPE_STRING_AS_STRING,
 					country_params, country_result,
 						regdom);
-}
-
-int g_supplicant_interface_set_country(GSupplicantInterface *interface,
-					GSupplicantCountryCallback callback,
-							const char *alpha2,
-							void *user_data)
-{
-	struct supplicant_regdom *regdom;
-
-	regdom = dbus_malloc0(sizeof(*regdom));
-	if (regdom == NULL)
-		return -ENOMEM;
-
-	regdom->callback = callback;
-	regdom->alpha2 = alpha2;
-	regdom->user_data = user_data;
-
-	return supplicant_dbus_property_set(interface->path,
-				SUPPLICANT_INTERFACE ".Interface",
-				"Country", DBUS_TYPE_STRING_AS_STRING,
-				country_params, country_result,
-					regdom);
 }
 
 struct interface_data {
@@ -2432,13 +2311,6 @@ struct interface_scan_data {
 	void *user_data;
 };
 
-struct interface_autoscan_data {
-	GSupplicantInterface *interface;
-	GSupplicantInterfaceCallback callback;
-	const char *autoscan_params;
-	void *user_data;
-};
-
 static void interface_create_property(const char *key, DBusMessageIter *iter,
 							void *user_data)
 {
@@ -2465,7 +2337,7 @@ static void interface_create_result(const char *error,
 	SUPPLICANT_DBG("");
 
 	if (error != NULL) {
-		g_warning("error %s", error);
+		g_critical("error %s", error);
 		err = -EIO;
 		goto done;
 	}
@@ -2538,6 +2410,7 @@ static void interface_get_result(const char *error,
 
 	if (error != NULL) {
 		SUPPLICANT_DBG("Interface not created yet");
+		err = -EIO;
 		goto create;
 	}
 
@@ -2706,7 +2579,7 @@ static void interface_scan_result(const char *error,
 	}
 
 	if (data != NULL && data->scan_params != NULL)
-		g_supplicant_free_scan_params(data->scan_params);
+		g_free(data->scan_params);
 
 	dbus_free(data);
 }
@@ -2731,7 +2604,7 @@ static void add_scan_frequencies(DBusMessageIter *iter,
 	unsigned int freq;
 	int i;
 
-	for (i = 0; i < scan_data->num_ssids; i++) {
+	for (i = 0; i < G_SUPPLICANT_MAX_FAST_SCAN; i++) {
 		freq = scan_data->freqs[i];
 		if (!freq)
 			break;
@@ -2756,13 +2629,11 @@ static void append_ssid(DBusMessageIter *iter,
 static void append_ssids(DBusMessageIter *iter, void *user_data)
 {
 	GSupplicantScanParams *scan_data = user_data;
-	GSList *list;
+	int i;
 
-	for (list = scan_data->ssids; list; list = list->next) {
-		struct scan_ssid *scan_ssid = list->data;
-
-		append_ssid(iter, scan_ssid->ssid, scan_ssid->ssid_len);
-	}
+	for (i = 0; i < scan_data->num_ssids; i++)
+		append_ssid(iter, scan_data->ssids[i].ssid,
+					scan_data->ssids[i].ssid_len);
 }
 
 static void supplicant_add_scan_frequency(DBusMessageIter *dict,
@@ -2773,7 +2644,7 @@ static void supplicant_add_scan_frequency(DBusMessageIter *dict,
 	DBusMessageIter entry, value, array;
 	const char *key = "Channels";
 
-	if (scan_params->freqs && scan_params->freqs[0] != 0) {
+	if (scan_params->freqs[0] != 0) {
 		dbus_message_iter_open_container(dict, DBUS_TYPE_DICT_ENTRY,
 						NULL, &entry);
 
@@ -2882,72 +2753,15 @@ int g_supplicant_interface_scan(GSupplicantInterface *interface,
 	return ret;
 }
 
-static void interface_autoscan_result(const char *error,
-				DBusMessageIter *iter, void *user_data)
-{
-	struct interface_autoscan_data *data = user_data;
-	int err = 0;
-
-	if (error != NULL) {
-		SUPPLICANT_DBG("error %s", error);
-		err = -EIO;
-	}
-
-	if (data != NULL && data->callback != NULL)
-		data->callback(err, data->interface, data->user_data);
-
-	dbus_free(data);
-}
-
-static void interface_autoscan_params(DBusMessageIter *iter, void *user_data)
-{
-	struct interface_autoscan_data *data = user_data;
-
-	dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING,
-						 &data->autoscan_params);
-}
-
-int g_supplicant_interface_autoscan(GSupplicantInterface *interface,
-					const char *autoscan_data,
-					GSupplicantInterfaceCallback callback,
-							void *user_data)
-{
-	struct interface_autoscan_data *data;
-	int ret;
-
-	data = dbus_malloc0(sizeof(*data));
-	if (data == NULL)
-		return -ENOMEM;
-
-	data->interface = interface;
-	data->callback = callback;
-	data->autoscan_params = autoscan_data;
-	data->user_data = user_data;
-
-	ret = supplicant_dbus_method_call(interface->path,
-			SUPPLICANT_INTERFACE ".Interface", "AutoScan",
-			interface_autoscan_params,
-			interface_autoscan_result, data);
-	if (ret < 0)
-		dbus_free(data);
-
-	return ret;
-}
-
 static int parse_supplicant_error(DBusMessageIter *iter)
 {
 	int err = -ECANCELED;
 	char *key;
 
-	/* If the given passphrase is malformed wpa_s returns
-	 * "invalid message format" but this error should be interpreted as
-	 * invalid-key.
-	 */
 	while (dbus_message_iter_get_arg_type(iter) == DBUS_TYPE_STRING) {
 		dbus_message_iter_get_basic(iter, &key);
-		if (strncmp(key, "psk", 3) == 0 ||
-				strncmp(key, "wep_key", 7) == 0 ||
-				strcmp(key, "invalid message format") == 0) {
+		if (strncmp(key, "psk", 4) == 0 ||
+			strncmp(key, "wep_key", 7) == 0) {
 			err = -ENOKEY;
 			break;
 		}
@@ -3099,49 +2913,18 @@ static dbus_bool_t is_psk_raw_key(const char *psk)
 	return TRUE;
 }
 
-static unsigned char hexchar2bin(char c)
-{
-	if ((c >= '0') && (c <= '9'))
-		return c - '0';
-	else if ((c >= 'A') && (c <= 'F'))
-		return c - 'A' + 10;
-	else if ((c >= 'a') && (c <= 'f'))
-		return c - 'a' + 10;
-	else
-		return c;
-}
-
-static void hexstring2bin(const char *string, unsigned char *data, size_t data_len)
-{
-	size_t i;
-
-	for (i = 0; i < data_len; i++)
-		data[i] = (hexchar2bin(string[i * 2 + 0]) << 4 |
-			   hexchar2bin(string[i * 2 + 1]) << 0);
-}
-
 static void add_network_security_psk(DBusMessageIter *dict,
 					GSupplicantSSID *ssid)
 {
 	if (ssid->passphrase && strlen(ssid->passphrase) > 0) {
-		const char *key = "psk";
 
-		if (is_psk_raw_key(ssid->passphrase) == TRUE) {
-			unsigned char data[32];
-			unsigned char *datap = data;
-
-			/* The above pointer alias is required by D-Bus because
-			 * with D-Bus and GCC, non-heap-allocated arrays cannot
-			 * be passed directly by their base pointer. */
-
-			hexstring2bin(ssid->passphrase, datap, sizeof(data));
-
-			supplicant_dbus_dict_append_fixed_array(dict,
-							key, DBUS_TYPE_BYTE,
-							&datap, sizeof(data));
-		} else
-			supplicant_dbus_dict_append_basic(dict,
-							key, DBUS_TYPE_STRING,
+		if (is_psk_raw_key(ssid->passphrase) == TRUE)
+			supplicant_dbus_property_append_fixed_array(dict,
+							"psk", DBUS_TYPE_BYTE,
+							&ssid->passphrase, 64);
+		else
+			supplicant_dbus_dict_append_basic(dict, "psk",
+							DBUS_TYPE_STRING,
 							&ssid->passphrase);
 	}
 }
@@ -3251,14 +3034,26 @@ static void add_network_security_eap(DBusMessageIter *dict,
 {
 	char *eap_value;
 
+#if defined TIZEN_EXT
+	if (ssid->eap == NULL)
+#else
 	if (ssid->eap == NULL || ssid->identity == NULL)
+#endif
 		return;
 
 	if (g_strcmp0(ssid->eap, "tls") == 0) {
 		add_network_security_tls(dict, ssid);
 	} else if (g_strcmp0(ssid->eap, "peap") == 0 ||
 				g_strcmp0(ssid->eap, "ttls") == 0) {
+#if defined TIZEN_EXT
+		if (ssid->identity == NULL)
+			return;
+#endif
 		add_network_security_peap(dict, ssid);
+#if defined TIZEN_EXT
+	} else if (g_strcmp0(ssid->eap, "sim") == 0 ||
+			g_strcmp0(ssid->eap, "aka") == 0) {
+#endif
 	} else
 		return;
 
@@ -3267,9 +3062,16 @@ static void add_network_security_eap(DBusMessageIter *dict,
 	supplicant_dbus_dict_append_basic(dict, "eap",
 						DBUS_TYPE_STRING,
 						&eap_value);
+#if defined TIZEN_EXT
+	if (ssid->identity != NULL)
+		supplicant_dbus_dict_append_basic(dict, "identity",
+							DBUS_TYPE_STRING,
+							&ssid->identity);
+#else
 	supplicant_dbus_dict_append_basic(dict, "identity",
 						DBUS_TYPE_STRING,
 						&ssid->identity);
+#endif
 
 	g_free(eap_value);
 }
@@ -3432,10 +3234,6 @@ static void interface_add_network_params(DBusMessageIter *iter, void *user_data)
 	if (ssid->freq)
 		supplicant_dbus_dict_append_basic(&dict, "frequency",
 					 DBUS_TYPE_UINT32, &ssid->freq);
-
-	if (ssid->bgscan != NULL)
-		supplicant_dbus_dict_append_basic(&dict, "bgscan",
-					DBUS_TYPE_STRING, &ssid->bgscan);
 
 	add_network_mode(&dict, ssid);
 
@@ -3608,16 +3406,21 @@ static void interface_disconnect_result(const char *error,
 
 	SUPPLICANT_DBG("");
 
+#if defined TIZEN_EXT
+	if (error != NULL && data->callback != NULL) {
+		data->callback(-EIO, data->interface, data->user_data);
+		data->user_data = NULL;
+	}
+#else
 	if (error != NULL && data->callback != NULL)
 		data->callback(-EIO, data->interface, data->user_data);
+#endif
 
 	/* If we are disconnecting from previous WPS successful
 	 * association. i.e.: it did not went through AddNetwork,
 	 * and interface->network_path was never set. */
-	if (data->interface->network_path == NULL) {
-		dbus_free(data);
+	if (data->interface->network_path == NULL)
 		return;
-	}
 
 	network_remove(data);
 }
@@ -3776,7 +3579,7 @@ void g_supplicant_unregister(const GSupplicantCallbacks *callbacks)
 		callback_system_killed();
 
 	if (interface_table != NULL) {
-		g_hash_table_foreach(interface_table,
+		g_hash_table_foreach(interface_table,	
 					unregister_remove_interface, NULL);
 		g_hash_table_destroy(interface_table);
 		interface_table = NULL;

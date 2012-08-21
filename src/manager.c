@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -29,8 +29,8 @@
 
 #include "connman.h"
 
-static connman_bool_t connman_state_idle;
-static DBusMessage *session_mode_pending = NULL;
+connman_bool_t connman_state_idle;
+DBusMessage *session_mode_pending = NULL;
 
 static DBusMessage *get_properties(DBusConnection *conn,
 					DBusMessage *msg, void *data)
@@ -50,6 +50,11 @@ static DBusMessage *get_properties(DBusConnection *conn,
 
 	connman_dbus_dict_open(&array, &dict);
 
+	connman_dbus_dict_append_array(&dict, "Services",
+			DBUS_TYPE_OBJECT_PATH, __connman_service_list, NULL);
+	connman_dbus_dict_append_array(&dict, "Technologies",
+			DBUS_TYPE_OBJECT_PATH, __connman_technology_list, NULL);
+
 	str = __connman_notifier_get_state();
 	connman_dbus_dict_append_basic(&dict, "State",
 						DBUS_TYPE_STRING, &str);
@@ -57,6 +62,23 @@ static DBusMessage *get_properties(DBusConnection *conn,
 	offlinemode = __connman_technology_get_offlinemode();
 	connman_dbus_dict_append_basic(&dict, "OfflineMode",
 					DBUS_TYPE_BOOLEAN, &offlinemode);
+
+	connman_dbus_dict_append_array(&dict, "AvailableTechnologies",
+		DBUS_TYPE_STRING, __connman_notifier_list_registered, NULL);
+	connman_dbus_dict_append_array(&dict, "EnabledTechnologies",
+		DBUS_TYPE_STRING, __connman_notifier_list_enabled, NULL);
+	connman_dbus_dict_append_array(&dict, "ConnectedTechnologies",
+		DBUS_TYPE_STRING, __connman_notifier_list_connected, NULL);
+
+	str = __connman_service_default();
+	if (str != NULL)
+		connman_dbus_dict_append_basic(&dict, "DefaultTechnology",
+						DBUS_TYPE_STRING, &str);
+
+	connman_dbus_dict_append_array(&dict, "AvailableDebugs",
+			DBUS_TYPE_STRING, __connman_debug_list_available, NULL);
+	connman_dbus_dict_append_array(&dict, "EnabledDebugs",
+			DBUS_TYPE_STRING, __connman_debug_list_enabled, NULL);
 
 	sessionmode = __connman_session_mode();
 	connman_dbus_dict_append_basic(&dict, "SessionMode",
@@ -80,15 +102,8 @@ static DBusMessage *set_property(DBusConnection *conn,
 	if (dbus_message_iter_init(msg, &iter) == FALSE)
 		return __connman_error_invalid_arguments(msg);
 
-	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_STRING)
-		return __connman_error_invalid_arguments(msg);
-
 	dbus_message_iter_get_basic(&iter, &name);
 	dbus_message_iter_next(&iter);
-
-	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_VARIANT)
-		return __connman_error_invalid_arguments(msg);
-
 	dbus_message_iter_recurse(&iter, &value);
 
 	type = dbus_message_iter_get_arg_type(&value);
@@ -126,26 +141,17 @@ static DBusMessage *set_property(DBusConnection *conn,
 	return g_dbus_create_reply(msg, DBUS_TYPE_INVALID);
 }
 
-static void append_technology_structs(DBusMessageIter *iter, void *user_data)
+static DBusMessage *get_state(DBusConnection *conn,
+					DBusMessage *msg, void *data)
 {
-	__connman_technology_list_struct(iter);
-}
+	const char *str;
 
-static DBusMessage *get_technologies(DBusConnection *conn,
-		DBusMessage *msg, void *data)
-{
-	DBusMessage *reply;
+	DBG("conn %p", conn);
 
-	DBG("");
+	str = __connman_notifier_get_state();
 
-	reply = dbus_message_new_method_return(msg);
-	if (reply == NULL)
-		return NULL;
-
-	__connman_dbus_append_objpath_dict_array(reply,
-			append_technology_structs, NULL);
-
-	return reply;
+	return g_dbus_create_reply(msg, DBUS_TYPE_STRING, &str,
+						DBUS_TYPE_INVALID);
 }
 
 static DBusMessage *remove_provider(DBusConnection *conn,
@@ -162,6 +168,40 @@ static DBusMessage *remove_provider(DBusConnection *conn,
 	err = __connman_provider_remove(path);
 	if (err < 0)
 		return __connman_error_failed(msg, -err);
+
+	return g_dbus_create_reply(msg, DBUS_TYPE_INVALID);
+}
+
+static DBusMessage *request_scan(DBusConnection *conn,
+					DBusMessage *msg, void *data)
+{
+	enum connman_service_type type;
+	const char *str;
+	int err;
+
+	DBG("conn %p", conn);
+
+	dbus_message_get_args(msg, NULL, DBUS_TYPE_STRING, &str,
+							DBUS_TYPE_INVALID);
+
+	if (g_strcmp0(str, "") == 0)
+		type = CONNMAN_SERVICE_TYPE_UNKNOWN;
+	else if (g_strcmp0(str, "wifi") == 0)
+		type = CONNMAN_SERVICE_TYPE_WIFI;
+	else if (g_strcmp0(str, "wimax") == 0)
+		type = CONNMAN_SERVICE_TYPE_WIMAX;
+	else
+		return __connman_error_invalid_arguments(msg);
+
+	err = __connman_device_request_scan(type);
+	if (err < 0) {
+		if (err == -EINPROGRESS) {
+			connman_error("Invalid return code from scan");
+			err = -EINVAL;
+		}
+
+		return __connman_error_failed(msg, -err);
+	}
 
 	return g_dbus_create_reply(msg, DBUS_TYPE_INVALID);
 }
@@ -198,24 +238,163 @@ static struct connman_notifier technology_notifier = {
 	.idle_state	= idle_state,
 };
 
-static void append_service_structs(DBusMessageIter *iter, void *user_data)
+static DBusMessage *enable_technology(DBusConnection *conn,
+					DBusMessage *msg, void *data)
 {
-	__connman_service_list_struct(iter);
+	enum connman_service_type type;
+	const char *str;
+
+	DBG("conn %p", conn);
+
+	dbus_message_get_args(msg, NULL, DBUS_TYPE_STRING, &str,
+							DBUS_TYPE_INVALID);
+
+	if (g_strcmp0(str, "ethernet") == 0)
+		type = CONNMAN_SERVICE_TYPE_ETHERNET;
+	else if (g_strcmp0(str, "wifi") == 0)
+		type = CONNMAN_SERVICE_TYPE_WIFI;
+	else if (g_strcmp0(str, "wimax") == 0)
+		type = CONNMAN_SERVICE_TYPE_WIMAX;
+	else if (g_strcmp0(str, "bluetooth") == 0)
+		type = CONNMAN_SERVICE_TYPE_BLUETOOTH;
+	else if (g_strcmp0(str, "cellular") == 0)
+		type = CONNMAN_SERVICE_TYPE_CELLULAR;
+	else
+		return __connman_error_invalid_arguments(msg);
+
+	if (__connman_notifier_is_registered(type) == FALSE)
+		return __connman_error_not_registered(msg);
+
+	if (__connman_notifier_is_enabled(type) == TRUE)
+		return __connman_error_already_enabled(msg);
+
+	 __connman_technology_enable(type, msg);
+
+	return NULL;
+}
+
+static DBusMessage *disable_technology(DBusConnection *conn,
+					DBusMessage *msg, void *data)
+{
+	enum connman_service_type type;
+	const char *str;
+
+	DBG("conn %p", conn);
+
+	dbus_message_get_args(msg, NULL, DBUS_TYPE_STRING, &str,
+							DBUS_TYPE_INVALID);
+
+	if (g_strcmp0(str, "ethernet") == 0)
+		type = CONNMAN_SERVICE_TYPE_ETHERNET;
+	else if (g_strcmp0(str, "wifi") == 0)
+		type = CONNMAN_SERVICE_TYPE_WIFI;
+	else if (g_strcmp0(str, "wimax") == 0)
+		type = CONNMAN_SERVICE_TYPE_WIMAX;
+	else if (g_strcmp0(str, "bluetooth") == 0)
+		type = CONNMAN_SERVICE_TYPE_BLUETOOTH;
+	else if (g_strcmp0(str, "cellular") == 0)
+		type = CONNMAN_SERVICE_TYPE_CELLULAR;
+	else
+		return __connman_error_invalid_arguments(msg);
+
+	if (__connman_notifier_is_registered(type) == FALSE)
+		return __connman_error_not_registered(msg);
+
+	if (__connman_notifier_is_enabled(type) == FALSE)
+		return __connman_error_already_disabled(msg);
+
+	__connman_technology_disable(type, msg);
+
+	return NULL;
 }
 
 static DBusMessage *get_services(DBusConnection *conn,
 					DBusMessage *msg, void *data)
 {
 	DBusMessage *reply;
+	DBusMessageIter iter, array;
 
 	reply = dbus_message_new_method_return(msg);
 	if (reply == NULL)
 		return NULL;
 
-	__connman_dbus_append_objpath_dict_array(reply,
-			append_service_structs, NULL);
+	dbus_message_iter_init_append(reply, &iter);
+
+	dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
+			DBUS_STRUCT_BEGIN_CHAR_AS_STRING
+			DBUS_TYPE_OBJECT_PATH_AS_STRING
+			DBUS_TYPE_ARRAY_AS_STRING
+				DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
+					DBUS_TYPE_STRING_AS_STRING
+					DBUS_TYPE_VARIANT_AS_STRING
+				DBUS_DICT_ENTRY_END_CHAR_AS_STRING
+			DBUS_STRUCT_END_CHAR_AS_STRING, &array);
+
+	__connman_service_list_struct(&array);
+
+	dbus_message_iter_close_container(&iter, &array);
 
 	return reply;
+}
+
+static DBusMessage *lookup_service(DBusConnection *conn,
+					DBusMessage *msg, void *data)
+{
+	const char *pattern, *path;
+	int err;
+
+	DBG("conn %p", conn);
+
+	dbus_message_get_args(msg, NULL, DBUS_TYPE_STRING, &pattern,
+							DBUS_TYPE_INVALID);
+
+	err = __connman_service_lookup(pattern, &path);
+	if (err < 0)
+		return __connman_error_failed(msg, -err);
+
+	return g_dbus_create_reply(msg, DBUS_TYPE_OBJECT_PATH, &path,
+							DBUS_TYPE_INVALID);
+}
+
+static DBusMessage *connect_service(DBusConnection *conn,
+					DBusMessage *msg, void *data)
+{
+	int err;
+
+	DBG("conn %p", conn);
+
+	if (__connman_session_mode() == TRUE) {
+		connman_info("Session mode enabled: "
+				"direct service connect disabled");
+
+		return __connman_error_failed(msg, -EINVAL);
+	}
+
+	err = __connman_service_create_and_connect(msg);
+	if (err < 0) {
+		if (err == -EINPROGRESS) {
+			connman_error("Invalid return code from connect");
+			err = -EINVAL;
+		}
+
+		return __connman_error_failed(msg, -err);
+	}
+
+	return NULL;
+}
+
+static DBusMessage *provision_service(DBusConnection *conn, DBusMessage *msg,
+					void *data)
+{
+	int err;
+
+	DBG("conn %p", conn);
+
+	err = __connman_service_provision(msg);
+	if (err < 0)
+		return __connman_error_failed(msg, -err);
+
+	return NULL;
 }
 
 static DBusMessage *connect_provider(DBusConnection *conn,
@@ -393,69 +572,42 @@ static DBusMessage *release_private_network(DBusConnection *conn,
 	return g_dbus_create_reply(msg, DBUS_TYPE_INVALID);
 }
 
-static const GDBusMethodTable manager_methods[] = {
-	{ GDBUS_METHOD("GetProperties",
-			NULL, GDBUS_ARGS({ "properties", "a{sv}" }),
-			get_properties) },
-	{ GDBUS_ASYNC_METHOD("SetProperty",
-			GDBUS_ARGS({ "name", "s" }, { "value", "v" }),
-			NULL, set_property) },
-	{ GDBUS_METHOD("GetTechnologies",
-			NULL, GDBUS_ARGS({ "technologies", "a(oa{sv})" }),
-			get_technologies) },
-	{ GDBUS_METHOD("RemoveProvider",
-			GDBUS_ARGS({ "provider", "o" }), NULL,
-			remove_provider) },
-	{ GDBUS_METHOD("GetServices",
-			NULL, GDBUS_ARGS({ "services", "a(oa{sv})" }),
-			get_services) },
-	{ GDBUS_ASYNC_METHOD("ConnectProvider",
-			      GDBUS_ARGS({ "provider", "a{sv}" }),
-			      GDBUS_ARGS({ "path", "o" }),
-			      connect_provider) },
-	{ GDBUS_METHOD("RegisterAgent",
-			GDBUS_ARGS({ "path", "o" }), NULL,
-			register_agent) },
-	{ GDBUS_METHOD("UnregisterAgent",
-			GDBUS_ARGS({ "path", "o" }), NULL,
-			unregister_agent) },
-	{ GDBUS_METHOD("RegisterCounter",
-			GDBUS_ARGS({ "path", "o" }, { "accuracy", "u" },
-					{ "period", "u" }),
-			NULL, register_counter) },
-	{ GDBUS_METHOD("UnregisterCounter",
-			GDBUS_ARGS({ "path", "o" }), NULL,
-			unregister_counter) },
-	{ GDBUS_METHOD("CreateSession",
-			GDBUS_ARGS({ "settings", "a{sv}" },
-						{ "notifier", "o" }),
-			GDBUS_ARGS({ "session", "o" }),
-			create_session) },
-	{ GDBUS_METHOD("DestroySession",
-			GDBUS_ARGS({ "session", "o" }), NULL,
-			destroy_session) },
-	{ GDBUS_ASYNC_METHOD("RequestPrivateNetwork",
-			      NULL, GDBUS_ARGS({ "path", "o" },
-					       { "settings", "a{sv}" },
-					       { "socket", "h" }),
-			      request_private_network) },
-	{ GDBUS_METHOD("ReleasePrivateNetwork",
-			GDBUS_ARGS({ "path", "o" }), NULL,
-			release_private_network) },
+static GDBusMethodTable manager_methods[] = {
+	{ "GetProperties",     "",      "a{sv}", get_properties     },
+	{ "SetProperty",       "sv",    "",      set_property,
+						G_DBUS_METHOD_FLAG_ASYNC },
+	{ "GetState",          "",      "s",     get_state          },
+	{ "RemoveProvider",    "o",     "",      remove_provider    },
+	{ "RequestScan",       "s",     "",      request_scan       },
+	{ "EnableTechnology",  "s",     "",      enable_technology,
+						G_DBUS_METHOD_FLAG_ASYNC },
+	{ "DisableTechnology", "s",     "",      disable_technology,
+						G_DBUS_METHOD_FLAG_ASYNC },
+	{ "GetServices",       "",      "a(oa{sv})", get_services   },
+	{ "LookupService",     "s",     "o",     lookup_service,    },
+	{ "ConnectService",    "a{sv}", "o",     connect_service,
+						G_DBUS_METHOD_FLAG_ASYNC },
+	{ "ProvisionService",  "s",     "",      provision_service,
+						G_DBUS_METHOD_FLAG_ASYNC },
+	{ "ConnectProvider",   "a{sv}", "o",     connect_provider,
+						G_DBUS_METHOD_FLAG_ASYNC },
+	{ "RegisterAgent",     "o",     "",      register_agent     },
+	{ "UnregisterAgent",   "o",     "",      unregister_agent   },
+	{ "RegisterCounter",   "ouu",   "",      register_counter   },
+	{ "UnregisterCounter", "o",     "",      unregister_counter },
+	{ "CreateSession",     "a{sv}o", "o",    create_session     },
+	{ "DestroySession",    "o",     "",      destroy_session    },
+	{ "RequestPrivateNetwork",    "",     "oa{sv}h",
+						request_private_network,
+						G_DBUS_METHOD_FLAG_ASYNC },
+	{ "ReleasePrivateNetwork",    "o",    "",
+						release_private_network },
 	{ },
 };
 
-static const GDBusSignalTable manager_signals[] = {
-	{ GDBUS_SIGNAL("PropertyChanged",
-			GDBUS_ARGS({ "name", "s" }, { "value", "v" })) },
-	{ GDBUS_SIGNAL("TechnologyAdded",
-			GDBUS_ARGS({ "path", "o" },
-				   { "properties", "a{sv}" })) },
-	{ GDBUS_SIGNAL("TechnologyRemoved",
-			GDBUS_ARGS({ "path", "o" })) },
-	{ GDBUS_SIGNAL("ServicesChanged",
-			GDBUS_ARGS({ "changed", "a(oa{sv})" },
-					{ "removed", "ao" })) },
+static GDBusSignalTable manager_signals[] = {
+	{ "PropertyChanged", "sv" },
+	{ "StateChanged",    "s"  },
 	{ },
 };
 

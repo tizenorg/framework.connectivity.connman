@@ -1,5 +1,5 @@
 AC_PREREQ(2.60)
-AC_INIT(connman, 1.3)
+AC_INIT(connman, 0.78.4)
 
 AM_INIT_AUTOMAKE([foreign subdir-objects color-tests])
 AM_CONFIG_HEADER(config.h)
@@ -59,13 +59,59 @@ AC_ARG_ENABLE(pie, AC_HELP_STRING([--enable-pie],
 
 AC_ARG_ENABLE(threads,
 	AC_HELP_STRING([--enable-threads], [enable threading support]),
-			[enable_threads=${enableval}], [enable_threads="no"])
+			[enable_threads=${enableval}], [enable_threads="yes"])
+
+AC_ARG_ENABLE(ethernet,
+	AC_HELP_STRING([--enable-ethernet], [enable Ethernet support]),
+			[enable_ethernet=${enableval}], [enable_ethernet="yes"])
+AM_CONDITIONAL(ETHERNET, test "${enable_ethernet}" != "no")
+AM_CONDITIONAL(ETHERNET_BUILTIN, test "${enable_ethernet}" = "builtin")
+
+AC_ARG_ENABLE(wifi,
+	AC_HELP_STRING([--enable-wifi], [enable WiFi support]),
+			[enable_wifi=${enableval}], [enable_wifi="yes"])
+if (test "${enable_wifi}" != "no"); then
+	AC_PATH_PROG(WPASUPPLICANT, [wpa_supplicant], [],
+						$PATH:/sbin:/usr/sbin)
+fi
+AM_CONDITIONAL(WIFI, test "${enable_wifi}" != "no")
+AM_CONDITIONAL(WIFI_BUILTIN, test "${enable_wifi}" = "builtin")
+
+AC_ARG_ENABLE(bluetooth,
+	AC_HELP_STRING([--enable-bluetooth], [enable Bluetooth support]),
+			[enable_bluetooth=${enableval}], [enable_bluetooth="no"])
+AM_CONDITIONAL(BLUETOOTH, test "${enable_bluetooth}" != "no")
+AM_CONDITIONAL(BLUETOOTH_BUILTIN, test "${enable_bluetooth}" = "builtin")
 
 AC_ARG_ENABLE(hh2serial-gps,
 	AC_HELP_STRING([--enable-hh2serial-gps], [enable hh2serial GPS support]),
 			[enable_hh2serial_gps=${enableval}], [enable_hh2serial_gps="no"])
 AM_CONDITIONAL(HH2SERIAL_GPS, test "${enable_hh2serial_gps}" != "no")
 AM_CONDITIONAL(HH2SERIAL_GPS_BUILTIN, test "${enable_hh2serial_gps}" = "builtin")
+
+AC_ARG_ENABLE(ofono,
+	AC_HELP_STRING([--enable-ofono], [enable oFono support]),
+			[enable_ofono=${enableval}], [enable_ofono="no"])
+AM_CONDITIONAL(OFONO, test "${enable_ofono}" != "no")
+AM_CONDITIONAL(OFONO_BUILTIN, test "${enable_ofono}" = "builtin")
+
+AC_ARG_ENABLE(telephony,
+	AC_HELP_STRING([--enable-telephony], [enable Telephony support]),
+			[enable_telephony=${enableval}], [enable_telephony="yes"])
+AM_CONDITIONAL(TELEPHONY, test "${enable_telephony}" != "no")
+AM_CONDITIONAL(TELEPHONY_BUILTIN, test "${enable_telephony}" = "builtin")
+
+AC_ARG_ENABLE(tizen-ext, AC_HELP_STRING([--enable-tizen-ext],
+			[enable TIZEN extensions]), [
+	if (test "${enableval}" = "yes"); then
+		CFLAGS="$CFLAGS -DTIZEN_EXT"
+		PKG_CHECK_MODULES(IPTC, libiptc, dummy=yes,
+			AC_MSG_ERROR(libiptc is required for tizen-ext))
+		IPTC_LIBS="$IPTC_LIBS -lip4tc"
+		AC_SUBST(IPTC_CFLAGS)
+		AC_SUBST(IPTC_LIBS)
+	fi
+])
 
 AC_ARG_WITH(openconnect, AC_HELP_STRING([--with-openconnect=PROGRAM],
         [specify location of openconnect binary]), [path_openconnect=${withval}])
@@ -171,6 +217,38 @@ fi
 AM_CONDITIONAL(PPTP, test "${enable_pptp}" != "no")
 AM_CONDITIONAL(PPTP_BUILTIN, test "${enable_pptp}" = "builtin")
 
+AC_ARG_ENABLE(loopback,
+	AC_HELP_STRING([--enable-loopback], [enable loopback support]),
+			[enable_loopback=${enableval}], [enable_loopback="yes"])
+if (test "${enable_loopback}" != "no"); then
+	AC_CHECK_HEADERS(sys/inotify.h, dummy=yes,
+			AC_MSG_ERROR(inotify header files are required))
+
+	AC_CHECK_LIB(c, inotify_init, dummy=yes,
+			AC_MSG_ERROR(inotify library support is required))
+fi
+AM_CONDITIONAL(LOOPBACK, test "${enable_loopback}" != "no")
+AM_CONDITIONAL(LOOPBACK_BUILTIN, test "${enable_loopback}" = "builtin")
+
+AC_ARG_ENABLE(pacrunner,
+	AC_HELP_STRING([--enable-pacrunner], [enable PAC runner support]),
+			[enable_pacrunner=${enableval}], [enable_pacrunner="no"])
+
+AM_CONDITIONAL(PACRUNNER, test "${enable_pacrunner}" != "no")
+AM_CONDITIONAL(PACRUNNER_BUILTIN, test "${enable_pacrunner}" = "builtin")
+
+AC_ARG_ENABLE(google,
+	AC_HELP_STRING([--enable-google], [enable Google Public DNS support]),
+			[enable_google=${enableval}], [enable_google="no"])
+AM_CONDITIONAL(GOOGLE, test "${enable_google}" != "no")
+AM_CONDITIONAL(GOOGLE_BUILTIN, test "${enable_google}" = "builtin")
+
+AC_ARG_ENABLE(meego,
+	AC_HELP_STRING([--enable-meego], [enable MeeGo features support]),
+			[enable_meego=${enableval}], [enable_meego="no"])
+AM_CONDITIONAL(MEEGO, test "${enable_meego}" != "no")
+AM_CONDITIONAL(MEEGO_BUILTIN, test "${enable_meego}" = "builtin")
+
 AC_CHECK_HEADERS(resolv.h, dummy=yes,
 	AC_MSG_ERROR(resolver header files are required))
 AC_CHECK_LIB(resolv, ns_initparse, dummy=yes, [
@@ -246,6 +324,30 @@ AC_ARG_ENABLE(iospm, AC_HELP_STRING([--enable-iospm],
 		[enable Intel OSPM support]), [enable_iospm=${enableval}])
 AM_CONDITIONAL(IOSPM, test "${enable_iospm}" = "yes")
 
+AC_ARG_WITH(ntpd, AC_HELP_STRING([--with-ntpd=PROGRAM],
+	[specify ntpd binary location]), [path_ntpd=${withval}])
+
+AC_ARG_ENABLE(ntpd,
+	AC_HELP_STRING([--enable-ntpd], [enable ntpd support]),
+			[enable_ntpd=${enableval}], [enable_ntpd="no"])
+
+if (test "${enable_ntpd}" != "no"); then
+	if (test -z "${path_ntpd}"); then
+		AC_PATH_PROG(NTPD, [ntpd], [], $PATH:/sbin:/usr/sbin)
+	else
+		NTPD="${path_ntpd}"
+		AC_SUBST(NTPD)
+	fi
+fi
+AM_CONDITIONAL(NTPD, test "${enable_ntpd}" != "no")
+AM_CONDITIONAL(NTPD_BUILTIN, test "${enable_ntpd}" = "builtin")
+
+AC_ARG_ENABLE(nmcompat,
+	AC_HELP_STRING([--enable-nmcompat], [enable nmcompat support]),
+			[enable_nmcompat=${enableval}], [enable_nmcompat="no"])
+AM_CONDITIONAL(NMCOMPAT, test "${enable_nmcompat}" != "no")
+AM_CONDITIONAL(NMCOMPAT_BUILTIN, test "${enable_nmcompat}" = "builtin")
+
 AC_ARG_ENABLE(tist,
 	AC_HELP_STRING([--enable-tist], [enable TI Shared Transport support]),
 			[enable_tist=${enableval}], [enable_tist="no"])
@@ -263,8 +365,8 @@ fi
 
 AC_DEFINE_UNQUOTED([STATS_MAX_FILE_SIZE], (${stats_max_file_size}), [Maximal size of a statistics round robin file])
 
-PKG_CHECK_MODULES(GLIB, glib-2.0 >= 2.28, dummy=yes,
-				AC_MSG_ERROR(GLib >= 2.28 is required))
+PKG_CHECK_MODULES(GLIB, glib-2.0 >= 2.22, dummy=yes,
+				AC_MSG_ERROR(GLib >= 2.22 is required))
 AC_SUBST(GLIB_CFLAGS)
 AC_SUBST(GLIB_LIBS)
 
@@ -276,8 +378,21 @@ if (test "${enable_threads}" = "yes"); then
 	GLIB_LIBS="$GLIB_LIBS $GTHREAD_LIBS"
 fi
 
-PKG_CHECK_MODULES(DBUS, dbus-1 >= 1.4, dummy=yes,
-				AC_MSG_ERROR(D-Bus >= 1.4 is required))
+PKG_CHECK_MODULES(DBUS, dbus-1 >= 1.0, dummy=yes,
+				AC_MSG_ERROR(D-Bus >= 1.0 is required))
+saved_CFLAGS="$CFLAGS"
+saved_LIBS="$LIBS"
+CFLAGS="$CFLAGS $DBUS_CFLAGS"
+LIBS="$LIBS $DBUS_LIBS"
+AC_CHECK_LIB(dbus-1, dbus_watch_get_unix_fd, dummy=yes,
+	AC_DEFINE(NEED_DBUS_WATCH_GET_UNIX_FD, 1,
+		[Define to 1 if you need the dbus_watch_get_unix_fd() function.]))
+AC_CHECK_LIB(dbus-1, dbus_connection_can_send_type, dummy=yes,
+	AC_DEFINE(NEED_DBUS_CONNECTION_CAN_SEND_TYPE, 1,
+		[Define to 1 if you need the dbus_connection_can_send_type() function.]
+))
+CFLAGS="$saved_CFLAGS"
+LIBS="$saved_LIBS"
 AC_SUBST(DBUS_CFLAGS)
 AC_SUBST(DBUS_LIBS)
 
@@ -315,17 +430,8 @@ PKG_CHECK_MODULES(XTABLES, xtables, dummy=yes,
 AC_SUBST(XTABLES_CFLAGS)
 AC_SUBST(XTABLES_LIBS)
 
-AC_ARG_ENABLE(test, AC_HELP_STRING([--enable-test],
-		[enable test/example scripts]), [enable_test=${enableval}])
-AM_CONDITIONAL(TEST, test "${enable_test}" = "yes")
-
-AC_ARG_ENABLE(nmcompat, AC_HELP_STRING([--enable-nmcompat],
-				[enable Network Manager support]),
-			[enable_nmcompat=${enableval}], [enable_nmcompat="no"])
-AM_CONDITIONAL(NMCOMPAT, test "${enable_nmcompat}" != "no")
-
-AC_ARG_ENABLE(polkit, AC_HELP_STRING([--enable-polkit],
-				[enable PolicyKit support]),
+AC_ARG_ENABLE(polkit,
+	AC_HELP_STRING([--enable-polkit], [enable PolicyKit support]),
 			[enable_polkit=${enableval}], [enable_polkit="no"])
 if (test "${enable_polkit}" != "no"); then
 	POLKIT_DATADIR="`$PKG_CONFIG --variable=actiondir polkit`"
@@ -336,78 +442,41 @@ if (test "${enable_polkit}" != "no"); then
 	AC_SUBST(POLKIT_DATADIR)
 fi
 AM_CONDITIONAL(POLKIT, test "${enable_polkit}" != "no")
+AM_CONDITIONAL(POLKIT_BUILTIN, test "${enable_polkit}" = "builtin")
 
-AC_ARG_ENABLE(loopback, AC_HELP_STRING([--disable-loopback],
-				[disable loopback support]),
-					[enable_loopback=${enableval}])
-AM_CONDITIONAL(LOOPBACK, test "${enable_loopback}" != "no")
+AC_ARG_ENABLE(client, AC_HELP_STRING([--enable-client],
+		[enable command line client]), [enable_client=${enableval}])
+AM_CONDITIONAL(CLIENT, test "${enable_client}" = "yes")
 
-AC_ARG_ENABLE(ethernet, AC_HELP_STRING([--disable-ethernet],
-				[disable Ethernet support]),
-					[enable_ethernet=${enableval}])
-AM_CONDITIONAL(ETHERNET, test "${enable_ethernet}" != "no")
-
-AC_ARG_ENABLE(wifi, AC_HELP_STRING([--disable-wifi],
-				[disable WiFi support]),
-					[enable_wifi=${enableval}])
-AM_CONDITIONAL(WIFI, test "${enable_wifi}" != "no")
-
-AC_ARG_ENABLE(bluetooth, AC_HELP_STRING([--disable-bluetooth],
-				[disable Bluetooth support]),
-					[enable_bluetooth=${enableval}])
-AM_CONDITIONAL(BLUETOOTH, test "${enable_bluetooth}" != "no")
-
-AC_ARG_ENABLE(ofono, AC_HELP_STRING([--disable-ofono],
-				[disable oFono support]),
-					[enable_ofono=${enableval}])
-AM_CONDITIONAL(OFONO, test "${enable_ofono}" != "no")
-
-AC_ARG_ENABLE(dundee, AC_HELP_STRING([--disable-dundee],
-				[disable dundee support (Bluetooth DUN)]),
-					[enable_dundee=${enableval}])
-AM_CONDITIONAL(DUNDEE, test "${enable_dundee}" != "no")
-
-AC_ARG_ENABLE(pacrunner, AC_HELP_STRING([--disable-pacrunner],
-				[disable PACrunner support]),
-					[enable_pacrunner=${enableval}])
-AM_CONDITIONAL(PACRUNNER, test "${enable_pacrunner}" != "no")
-
-AC_ARG_ENABLE(wispr, AC_HELP_STRING([--disable-wispr],
-				[disable WISPr support]),
-					[enable_wispr=${enableval}])
-AM_CONDITIONAL(WISPR, test "${enable_wispr}" != "no")
-
-AC_ARG_ENABLE(tools, AC_HELP_STRING([--disable-tools],
-				[disable testing tools]),
-					[enable_tools=${enableval}])
-AM_CONDITIONAL(TOOLS, test "${enable_tools}" != "no")
-
-AC_ARG_ENABLE(client, AC_HELP_STRING([--disable-client],
-				[disable command line client]),
-					[disable_client=${enableval}])
-AM_CONDITIONAL(CLIENT, test "${enable_client}" != "no")
-
-if (test "${enable_wispr}" != "no"); then
+AC_ARG_ENABLE(tools, AC_HELP_STRING([--enable-tools],
+		[enable testing tools]), [enable_tools=${enableval}])
+if (test "${enable_tools}" = "yes"); then
 	PKG_CHECK_MODULES(GNUTLS, gnutls, dummy=yes,
 				AC_MSG_ERROR(GnuTLS library is required))
-else
-	GNUTLS_CFLAGS=""
-	GNUTLS_LIBS=""
+	AC_SUBST(GNUTLS_CFLAGS)
+	AC_SUBST(GNUTLS_LIBS)
+
+	AC_CHECK_HEADERS(linux/if_alg.h, dummy=yes,
+		AC_MSG_ERROR(User-space algorithm header files are required))
 fi
-AC_SUBST(GNUTLS_CFLAGS)
-AC_SUBST(GNUTLS_LIBS)
+AM_CONDITIONAL(TOOLS, test "${enable_tools}" = "yes")
 
-if (test "${enable_loopback}" != "no"); then
-	AC_CHECK_HEADERS(sys/inotify.h, dummy=yes,
-			AC_MSG_ERROR(inotify header files are required))
+AC_ARG_ENABLE(test, AC_HELP_STRING([--enable-test],
+		[enable test/example scripts]), [enable_test=${enableval}])
+AM_CONDITIONAL(TEST, test "${enable_test}" = "yes")
 
-	AC_CHECK_LIB(c, inotify_init, dummy=yes,
-			AC_MSG_ERROR(inotify library support is required))
-fi
+AC_ARG_ENABLE(fake, AC_HELP_STRING([--enable-fake],
+		[enable fake device support]), [enable_fake=${enableval}])
+AM_CONDITIONAL(FAKE, test "${enable_fake}" = "yes")
 
-if (test "${enable_wifi}" != "no"); then
-	AC_PATH_PROG(WPASUPPLICANT, [wpa_supplicant], [],
-						$PATH:/sbin:/usr/sbin)
+AC_ARG_ENABLE(capng, AC_HELP_STRING([--enable-capng],
+		[enable capabilities support]), [enable_capng=${enableval}])
+if (test "${enable_capng}" = "yes"); then
+	PKG_CHECK_MODULES(CAPNG, libcap-ng, dummy=yes,
+				AC_MSG_ERROR(Capabilities library is required))
+	AC_SUBST(CAPNG_CFLAGS)
+	AC_SUBST(CAPNG_LIBS)
+	AC_DEFINE(HAVE_CAPNG, 1, [Define to 1 if you have capabilities library.])
 fi
 
 AC_ARG_ENABLE(datafiles, AC_HELP_STRING([--disable-datafiles],

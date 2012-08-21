@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -446,7 +446,7 @@ static void network_properties_reply(DBusPendingCall *call, void *user_data)
 
 	connman_network_set_group(network, ident);
 
-	g_hash_table_replace(bluetooth_networks, g_strdup(path), network);
+	g_hash_table_insert(bluetooth_networks, g_strdup(path), network);
 
 done:
 	dbus_message_unref(reply);
@@ -885,24 +885,9 @@ static void bluetooth_disconnect(DBusConnection *connection, void *user_data)
 
 static int bluetooth_probe(struct connman_device *device)
 {
-	GHashTableIter iter;
-	gpointer key, value;
-
 	DBG("device %p", device);
 
-	if (bluetooth_devices == NULL)
-		return -ENOTSUP;
-
-	g_hash_table_iter_init(&iter, bluetooth_devices);
-
-	while (g_hash_table_iter_next(&iter, &key, &value) == TRUE) {
-		struct connman_device *device_pan = value;
-
-		if (device == device_pan)
-			return 0;
-	}
-
-	return -ENOTSUP;
+	return 0;
 }
 
 static void bluetooth_remove(struct connman_device *device)
@@ -1194,34 +1179,33 @@ static int bluetooth_init(void)
 	watch = g_dbus_add_service_watch(connection, BLUEZ_SERVICE,
 			bluetooth_connect, bluetooth_disconnect, NULL, NULL);
 
-	added_watch = g_dbus_add_signal_watch(connection, BLUEZ_SERVICE, NULL,
+	added_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
 						BLUEZ_MANAGER_INTERFACE,
 						ADAPTER_ADDED, adapter_added,
 						NULL, NULL);
 
-	removed_watch = g_dbus_add_signal_watch(connection, BLUEZ_SERVICE, NULL,
+	removed_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
 						BLUEZ_MANAGER_INTERFACE,
 						ADAPTER_REMOVED, adapter_removed,
 						NULL, NULL);
 
-	adapter_watch = g_dbus_add_signal_watch(connection, BLUEZ_SERVICE,
-						NULL, BLUEZ_ADAPTER_INTERFACE,
+	adapter_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
+						BLUEZ_ADAPTER_INTERFACE,
 						PROPERTY_CHANGED, adapter_changed,
 						NULL, NULL);
 
-	device_removed_watch = g_dbus_add_signal_watch(connection,
-						BLUEZ_SERVICE, NULL,
+	device_removed_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
 						BLUEZ_ADAPTER_INTERFACE,
 						DEVICE_REMOVED, device_removed,
 						NULL, NULL);
 
-	device_watch = g_dbus_add_signal_watch(connection, BLUEZ_SERVICE, NULL,
+	device_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
 						BLUEZ_DEVICE_INTERFACE,
 						PROPERTY_CHANGED, device_changed,
 						NULL, NULL);
 
-	network_watch = g_dbus_add_signal_watch(connection, BLUEZ_SERVICE,
-						NULL, BLUEZ_NETWORK_INTERFACE,
+	network_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
+						BLUEZ_NETWORK_INTERFACE,
 						PROPERTY_CHANGED, network_changed,
 						NULL, NULL);
 

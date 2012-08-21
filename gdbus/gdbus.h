@@ -85,21 +85,16 @@ typedef enum {
 typedef struct {
 	const char *name;
 	const char *signature;
-} GDBusArgInfo;
-
-typedef struct {
-	const char *name;
+	const char *reply;
 	GDBusMethodFunction function;
 	GDBusMethodFlags flags;
 	unsigned int privilege;
-	const GDBusArgInfo *in_args;
-	const GDBusArgInfo *out_args;
 } GDBusMethodTable;
 
 typedef struct {
 	const char *name;
+	const char *signature;
 	GDBusSignalFlags flags;
-	const GDBusArgInfo *args;
 } GDBusSignalTable;
 
 typedef struct {
@@ -114,51 +109,6 @@ typedef struct {
 	GDBusSecurityFlags flags;
 	GDBusSecurityFunction function;
 } GDBusSecurityTable;
-
-#define GDBUS_ARGS(args...) (const GDBusArgInfo[]) { args, { } }
-
-#define GDBUS_METHOD(_name, _in_args, _out_args, _function) \
-	.name = _name, \
-	.in_args = _in_args, \
-	.out_args = _out_args, \
-	.function = _function
-
-#define GDBUS_ASYNC_METHOD(_name, _in_args, _out_args, _function) \
-	.name = _name, \
-	.in_args = _in_args, \
-	.out_args = _out_args, \
-	.function = _function, \
-	.flags = G_DBUS_METHOD_FLAG_ASYNC
-
-#define GDBUS_DEPRECATED_METHOD(_name, _in_args, _out_args, _function) \
-	.name = _name, \
-	.in_args = _in_args, \
-	.out_args = _out_args, \
-	.function = _function, \
-	.flags = G_DBUS_METHOD_FLAG_DEPRECATED
-
-#define GDBUS_DEPRECATED_ASYNC_METHOD(_name, _in_args, _out_args, _function) \
-	.name = _name, \
-	.in_args = _in_args, \
-	.out_args = _out_args, \
-	.function = _function, \
-	.flags = G_DBUS_METHOD_FLAG_ASYNC | G_DBUS_METHOD_FLAG_DEPRECATED
-
-#define GDBUS_NOREPLY_METHOD(_name, _in_args, _out_args, _function) \
-	.name = _name, \
-	.in_args = _in_args, \
-	.out_args = _out_args, \
-	.function = _function, \
-	.flags = G_DBUS_METHOD_FLAG_NOREPLY
-
-#define GDBUS_SIGNAL(_name, _args) \
-	.name = _name, \
-	.args = _args
-
-#define GDBUS_DEPRECATED_SIGNAL(_name, _args) \
-	.name = _name, \
-	.args = _args, \
-	.flags = G_DBUS_SIGNAL_FLAG_DEPRECATED
 
 gboolean g_dbus_register_interface(DBusConnection *connection,
 					const char *path, const char *name,

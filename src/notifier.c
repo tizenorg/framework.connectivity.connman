@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -31,8 +31,6 @@ static DBusConnection *connection = NULL;
 
 static GSList *notifier_list = NULL;
 static GHashTable *service_hash = NULL;
-
-static const char *notifier_state;
 
 static gint compare_priority(gconstpointer a, gconstpointer b)
 {
@@ -75,68 +73,142 @@ void connman_notifier_unregister(struct connman_notifier *notifier)
 
 #define MAX_TECHNOLOGIES 10
 
-static int connected[MAX_TECHNOLOGIES];
-static int online[MAX_TECHNOLOGIES];
+static volatile int registered[MAX_TECHNOLOGIES];
+static volatile int enabled[MAX_TECHNOLOGIES];
+static volatile int connected[MAX_TECHNOLOGIES];
 
-static connman_bool_t notifier_is_online(void)
+void __connman_notifier_list_registered(DBusMessageIter *iter, void *user_data)
 {
-	unsigned int i;
+	int i;
 
 	__sync_synchronize();
 	for (i = 0; i < MAX_TECHNOLOGIES; i++) {
-		if (online[i] > 0)
-			return TRUE;
-	}
+		const char *type = __connman_service_type2string(i);
 
-	return FALSE;
+		if (type == NULL)
+			continue;
+
+		if (registered[i] > 0)
+			dbus_message_iter_append_basic(iter,
+						DBUS_TYPE_STRING, &type);
+	}
 }
 
-connman_bool_t __connman_notifier_is_connected(void)
+void __connman_notifier_list_enabled(DBusMessageIter *iter, void *user_data)
 {
-	unsigned int i;
+	int i;
+
+	__sync_synchronize();
+	for (i = 0; i < MAX_TECHNOLOGIES; i++) {
+		const char *type = __connman_service_type2string(i);
+
+		if (type == NULL)
+			continue;
+
+		if (enabled[i] > 0)
+			dbus_message_iter_append_basic(iter,
+						DBUS_TYPE_STRING, &type);
+	}
+}
+
+void __connman_notifier_list_connected(DBusMessageIter *iter, void *user_data)
+{
+	int i;
+
+	__sync_synchronize();
+	for (i = 0; i < MAX_TECHNOLOGIES; i++) {
+		const char *type = __connman_service_type2string(i);
+
+		if (type == NULL)
+			continue;
+
+		if (connected[i] > 0)
+			dbus_message_iter_append_basic(iter,
+						DBUS_TYPE_STRING, &type);
+	}
+}
+
+static void technology_registered(enum connman_service_type type,
+						connman_bool_t registered)
+{
+	DBG("type %d registered %d", type, registered);
+
+	connman_dbus_property_changed_array(CONNMAN_MANAGER_PATH,
+		CONNMAN_MANAGER_INTERFACE, "AvailableTechnologies",
+		DBUS_TYPE_STRING, __connman_notifier_list_registered, NULL);
+}
+
+static void technology_enabled(enum connman_service_type type,
+						connman_bool_t enabled)
+{
+	GSList *list;
+
+	DBG("type %d enabled %d", type, enabled);
+
+	connman_dbus_property_changed_array(CONNMAN_MANAGER_PATH,
+		CONNMAN_MANAGER_INTERFACE, "EnabledTechnologies",
+		DBUS_TYPE_STRING, __connman_notifier_list_enabled, NULL);
+
+	for (list = notifier_list; list; list = list->next) {
+		struct connman_notifier *notifier = list->data;
+
+		if (notifier->service_enabled)
+			notifier->service_enabled(type, enabled);
+	}
+}
+
+unsigned int __connman_notifier_count_connected(void)
+{
+	unsigned int i, count = 0;
 
 	__sync_synchronize();
 	for (i = 0; i < MAX_TECHNOLOGIES; i++) {
 		if (connected[i] > 0)
-			return TRUE;
+			count++;
 	}
 
-	return FALSE;
-}
-
-static const char *evaluate_notifier_state(void)
-{
-	if (notifier_is_online() == TRUE)
-		return "online";
-
-	if (__connman_notifier_is_connected() == TRUE)
-		return "ready";
-
-	if ( __connman_technology_get_offlinemode() == TRUE)
-		return "offline";
-
-	return "idle";
+	return count;
 }
 
 const char *__connman_notifier_get_state(void)
 {
-	return notifier_state;
+	unsigned int count = __connman_notifier_count_connected();
+
+	if (count > 0)
+		return "online";
+
+	return "offline";
 }
 
-static void state_changed(void)
+static void state_changed(connman_bool_t connected)
 {
-	const char *state;
+	unsigned int count = __connman_notifier_count_connected();
+	char *state = "offline";
+	DBusMessage *signal;
 
-	state = evaluate_notifier_state();
-
-	if (g_strcmp0(state, notifier_state) == 0)
+	if (count > 1)
 		return;
 
-	notifier_state = state;
+	if (count == 1) {
+		if (connected == FALSE)
+			return;
+
+		state = "online";
+	}
 
 	connman_dbus_property_changed_basic(CONNMAN_MANAGER_PATH,
 				CONNMAN_MANAGER_INTERFACE, "State",
-					DBUS_TYPE_STRING, &notifier_state);
+						DBUS_TYPE_STRING, &state);
+
+	signal = dbus_message_new_signal(CONNMAN_MANAGER_PATH,
+				CONNMAN_MANAGER_INTERFACE, "StateChanged");
+	if (signal == NULL)
+		return;
+
+	dbus_message_append_args(signal, DBUS_TYPE_STRING, &state,
+							DBUS_TYPE_INVALID);
+
+	g_dbus_send_message(connection, signal);
 }
 
 static void technology_connected(enum connman_service_type type,
@@ -144,8 +216,119 @@ static void technology_connected(enum connman_service_type type,
 {
 	DBG("type %d connected %d", type, connected);
 
-	__connman_technology_set_connected(type, connected);
-	state_changed();
+	connman_dbus_property_changed_array(CONNMAN_MANAGER_PATH,
+		CONNMAN_MANAGER_INTERFACE, "ConnectedTechnologies",
+		DBUS_TYPE_STRING, __connman_notifier_list_connected, NULL);
+
+	state_changed(connected);
+}
+
+void __connman_notifier_register(enum connman_service_type type)
+{
+	DBG("type %d", type);
+
+	switch (type) {
+	case CONNMAN_SERVICE_TYPE_UNKNOWN:
+	case CONNMAN_SERVICE_TYPE_SYSTEM:
+	case CONNMAN_SERVICE_TYPE_GPS:
+	case CONNMAN_SERVICE_TYPE_VPN:
+	case CONNMAN_SERVICE_TYPE_GADGET:
+		return;
+	case CONNMAN_SERVICE_TYPE_ETHERNET:
+	case CONNMAN_SERVICE_TYPE_WIFI:
+	case CONNMAN_SERVICE_TYPE_WIMAX:
+	case CONNMAN_SERVICE_TYPE_BLUETOOTH:
+	case CONNMAN_SERVICE_TYPE_CELLULAR:
+		break;
+	}
+
+	if (__sync_fetch_and_add(&registered[type], 1) == 0)
+		technology_registered(type, TRUE);
+}
+
+void __connman_notifier_unregister(enum connman_service_type type)
+{
+	DBG("type %d", type);
+
+	__sync_synchronize();
+	if (registered[type] == 0) {
+		connman_error("notifier unregister underflow");
+		return;
+	}
+
+	switch (type) {
+	case CONNMAN_SERVICE_TYPE_UNKNOWN:
+	case CONNMAN_SERVICE_TYPE_SYSTEM:
+	case CONNMAN_SERVICE_TYPE_GPS:
+	case CONNMAN_SERVICE_TYPE_VPN:
+	case CONNMAN_SERVICE_TYPE_GADGET:
+		return;
+	case CONNMAN_SERVICE_TYPE_ETHERNET:
+	case CONNMAN_SERVICE_TYPE_WIFI:
+	case CONNMAN_SERVICE_TYPE_WIMAX:
+	case CONNMAN_SERVICE_TYPE_BLUETOOTH:
+	case CONNMAN_SERVICE_TYPE_CELLULAR:
+		break;
+	}
+
+	if (__sync_fetch_and_sub(&registered[type], 1) != 1)
+		return;
+
+	technology_registered(type, FALSE);
+}
+
+void __connman_notifier_enable(enum connman_service_type type)
+{
+	DBG("type %d", type);
+
+	switch (type) {
+	case CONNMAN_SERVICE_TYPE_UNKNOWN:
+	case CONNMAN_SERVICE_TYPE_SYSTEM:
+	case CONNMAN_SERVICE_TYPE_GPS:
+	case CONNMAN_SERVICE_TYPE_VPN:
+	case CONNMAN_SERVICE_TYPE_GADGET:
+		return;
+	case CONNMAN_SERVICE_TYPE_ETHERNET:
+	case CONNMAN_SERVICE_TYPE_WIFI:
+	case CONNMAN_SERVICE_TYPE_WIMAX:
+	case CONNMAN_SERVICE_TYPE_BLUETOOTH:
+	case CONNMAN_SERVICE_TYPE_CELLULAR:
+		break;
+	}
+
+	if (__sync_fetch_and_add(&enabled[type], 1) == 0)
+		technology_enabled(type, TRUE);
+}
+
+void __connman_notifier_disable(enum connman_service_type type)
+{
+	DBG("type %d", type);
+
+	__sync_synchronize();
+	if (enabled[type] == 0) {
+		connman_error("notifier disable underflow");
+		return;
+	}
+
+	switch (type) {
+	case CONNMAN_SERVICE_TYPE_UNKNOWN:
+	case CONNMAN_SERVICE_TYPE_SYSTEM:
+	case CONNMAN_SERVICE_TYPE_GPS:
+	case CONNMAN_SERVICE_TYPE_VPN:
+	case CONNMAN_SERVICE_TYPE_GADGET:
+		return;
+	case CONNMAN_SERVICE_TYPE_ETHERNET:
+	case CONNMAN_SERVICE_TYPE_WIFI:
+	case CONNMAN_SERVICE_TYPE_WIMAX:
+	case CONNMAN_SERVICE_TYPE_BLUETOOTH:
+	case CONNMAN_SERVICE_TYPE_CELLULAR:
+		break;
+	}
+
+	if (__sync_fetch_and_sub(&enabled[type], 1) != 1)
+		return;
+
+	technology_enabled(type, FALSE);
 }
 
 void __connman_notifier_connect(enum connman_service_type type)
@@ -169,22 +352,6 @@ void __connman_notifier_connect(enum connman_service_type type)
 
 	if (__sync_fetch_and_add(&connected[type], 1) == 0)
 		technology_connected(type, TRUE);
-}
-
-void __connman_notifier_enter_online(enum connman_service_type type)
-{
-	DBG("type %d", type);
-
-	if (__sync_fetch_and_add(&online[type], 1) == 0)
-		state_changed();
-}
-
-void __connman_notifier_leave_online(enum connman_service_type type)
-{
-	DBG("type %d", type);
-
-	if (__sync_fetch_and_sub(&online[type], 1) == 1)
-		state_changed();
 }
 
 void __connman_notifier_disconnect(enum connman_service_type type)
@@ -218,9 +385,35 @@ void __connman_notifier_disconnect(enum connman_service_type type)
 	technology_connected(type, FALSE);
 }
 
+static void technology_default(enum connman_service_type type)
+{
+	const char *str;
+
+	str = __connman_service_type2string(type);
+	if (str == NULL)
+		str = "";
+
+	connman_dbus_property_changed_basic(CONNMAN_MANAGER_PATH,
+			CONNMAN_MANAGER_INTERFACE, "DefaultTechnology",
+						DBUS_TYPE_STRING, &str);
+}
+
 void __connman_notifier_default_changed(struct connman_service *service)
 {
+	enum connman_service_type type = connman_service_get_type(service);
+	char *interface;
 	GSList *list;
+
+	technology_default(type);
+
+	interface = connman_service_get_interface(service);
+#if !defined TIZEN_EXT
+/*
+ * Description: Tethering service is provided by external module in TIZEN
+ */
+	__connman_tethering_update_interface(interface);
+#endif
+	g_free(interface);
 
 	for (list = notifier_list; list; list = list->next) {
 		struct connman_notifier *notifier = list->data;
@@ -294,7 +487,6 @@ void __connman_notifier_offlinemode(connman_bool_t enabled)
 	DBG("enabled %d", enabled);
 
 	offlinemode_changed(enabled);
-	state_changed();
 
 	for (list = notifier_list; list; list = list->next) {
 		struct connman_notifier *notifier = list->data;
@@ -317,6 +509,24 @@ static void notify_idle_state(connman_bool_t idle)
 			notifier->idle_state(idle);
 	}
 }
+
+#if defined TIZEN_EXT
+/*
+ * August 22nd, 2011. TIZEN
+ *
+ * This part is added to send a DBus signal which means scan is completed
+ * because scan UX of a Wi-Fi setting application has an active scan procedure
+ * and it needs scan complete signal whether success or not
+ */
+
+void __connman_notifier_scan_completed(connman_bool_t success)
+{
+	DBG("scan completed : %s", success == TRUE ? "success" : "failed");
+
+	connman_dbus_scan_completed_basic(CONNMAN_MANAGER_PATH,
+				CONNMAN_MANAGER_INTERFACE, DBUS_TYPE_BOOLEAN, &success);
+}
+#endif
 
 void __connman_notifier_service_state_changed(struct connman_service *service,
 					enum connman_service_state state)
@@ -376,6 +586,54 @@ void __connman_notifier_ipconfig_changed(struct connman_service *service,
 	}
 }
 
+static connman_bool_t technology_supported(enum connman_service_type type)
+{
+	switch (type) {
+	case CONNMAN_SERVICE_TYPE_UNKNOWN:
+	case CONNMAN_SERVICE_TYPE_SYSTEM:
+	case CONNMAN_SERVICE_TYPE_GPS:
+	case CONNMAN_SERVICE_TYPE_VPN:
+	case CONNMAN_SERVICE_TYPE_GADGET:
+		return FALSE;
+	case CONNMAN_SERVICE_TYPE_ETHERNET:
+	case CONNMAN_SERVICE_TYPE_WIFI:
+	case CONNMAN_SERVICE_TYPE_WIMAX:
+	case CONNMAN_SERVICE_TYPE_BLUETOOTH:
+	case CONNMAN_SERVICE_TYPE_CELLULAR:
+		break;
+	}
+
+	return TRUE;
+}
+
+connman_bool_t __connman_notifier_is_registered(enum connman_service_type type)
+{
+	DBG("type %d", type);
+
+	if (technology_supported(type) == FALSE)
+		return FALSE;
+
+	__sync_synchronize();
+	if (registered[type] > 0)
+		return TRUE;
+
+	return FALSE;
+}
+
+connman_bool_t __connman_notifier_is_enabled(enum connman_service_type type)
+{
+	DBG("type %d", type);
+
+	if (technology_supported(type) == FALSE)
+		return FALSE;
+
+	__sync_synchronize();
+	if (enabled[type] > 0)
+		return TRUE;
+
+	return FALSE;
+}
+
 int __connman_notifier_init(void)
 {
 	DBG("");
@@ -385,7 +643,6 @@ int __connman_notifier_init(void)
 	service_hash = g_hash_table_new_full(g_direct_hash, g_direct_equal,
 						NULL, NULL);
 
-	notifier_state = evaluate_notifier_state();
 
 	return 0;
 }

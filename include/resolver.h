@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -39,6 +39,9 @@ int connman_resolver_append_lifetime(const char *interface, const char *domain,
 int connman_resolver_remove(const char *interface, const char *domain,
 							const char *server);
 int connman_resolver_remove_all(const char *interface);
+
+int connman_resolver_append_public_server(const char *server);
+int connman_resolver_remove_public_server(const char *server);
 
 void connman_resolver_flush(void);
 

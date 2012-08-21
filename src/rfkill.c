@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -170,6 +170,11 @@ int __connman_rfkill_block(enum connman_service_type type, connman_bool_t block)
 	DBG("type %d block %d", type, block);
 
 	rfkill_type = convert_service_type(type);
+#if defined TIZEN_EXT
+	DBG("try to set rfkill block %d and type %d, but it's not permitted",
+					block, rfkill_type);
+	return 0;
+#endif
 	if (rfkill_type == NUM_RFKILL_TYPES)
 		return -EINVAL;
 

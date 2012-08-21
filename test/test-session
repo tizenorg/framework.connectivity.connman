@@ -76,6 +76,7 @@ class SessionApplication(dbus.service.Object):
 			bus.watch_name_owner('net.connman', self.connman_name_owner_changed)
 		except dbus.DBusException:
 			traceback.print_exc()
+			exit(1)
 
 	def connman_name_owner_changed(self, proxy):
 		try:
@@ -96,6 +97,7 @@ class SessionApplication(dbus.service.Object):
 
 		except dbus.DBusException:
 			traceback.print_exc()
+			exit(1)
 
 	def release(self, session_name):
 		s = self.find_session(session_name)
@@ -110,11 +112,8 @@ class SessionApplication(dbus.service.Object):
 		del self.sessions[session_name]
 
 	def type_convert(self, key, value):
-		if key in [ "AllowedBearers" ]:
+		if key in [ "AllowedBearers", "RoamingPolicy" ]:
 			return value
-		elif key in [ "RoamingPolicy", "ConnectionType" ]:
-			if len(value) > 0:
-				return value[0]
 		elif key in [ "Priority", "AvoidHandover",
 			      "StayConnected", "EmergencyCall" ]:
 			flag = str(value[0]).strip().lower()
@@ -163,6 +162,7 @@ class SessionApplication(dbus.service.Object):
 				print e.get_dbus_message()
 				return
 			traceback.print_exc()
+			exit(1)
 
 	@dbus.service.method("com.example.TestSession",
 				in_signature='', out_signature='')
@@ -178,6 +178,7 @@ class SessionApplication(dbus.service.Object):
 			self.release(session_name)
 		except dbus.DBusException:
 			traceback.print_exc()
+			exit(1)
 
 	@dbus.service.method("com.example.TestSession",
 				in_signature='', out_signature='')
@@ -196,6 +197,7 @@ class SessionApplication(dbus.service.Object):
 				print e.get_dbus_message()
 				return
 			traceback.print_exc()
+			exit(1)
 
 	@dbus.service.method("com.example.TestSession",
 				in_signature='', out_signature='')
@@ -214,6 +216,7 @@ class SessionApplication(dbus.service.Object):
 				print e.get_dbus_message()
 				return
 			traceback.print_exc()
+			exit(1)
 
 	@dbus.service.method("com.example.TestSession",
 				in_signature='', out_signature='')
@@ -233,6 +236,7 @@ class SessionApplication(dbus.service.Object):
 				print e.get_dbus_message()
 				return
 			traceback.print_exc()
+			exit(1)
 
 	@dbus.service.method("com.example.TestSession",
 				in_signature='', out_signature='')

@@ -59,20 +59,63 @@ struct security_data {
 	void *iface_user_data;
 };
 
-static void print_arguments(GString *gstr, const GDBusArgInfo *args,
+static void print_arguments(GString *gstr, const char *sig,
 						const char *direction)
 {
-	for (; args && args->name; args++) {
-		g_string_append_printf(gstr,
-					"\t\t\t<arg name=\"%s\" type=\"%s\"",
-					args->name, args->signature);
+	int i;
+
+	for (i = 0; sig[i]; i++) {
+		char type[32];
+		int struct_level, dict_level;
+		unsigned int len;
+		gboolean complete;
+
+		complete = FALSE;
+		struct_level = dict_level = 0;
+		memset(type, 0, sizeof(type));
+
+		/* Gather enough data to have a single complete type */
+		for (len = 0; len < (sizeof(type) - 1) && sig[i]; len++, i++) {
+			switch (sig[i]){
+			case '(':
+				struct_level++;
+				break;
+			case ')':
+				struct_level--;
+				if (struct_level <= 0 && dict_level <= 0)
+					complete = TRUE;
+				break;
+			case '{':
+				dict_level++;
+				break;
+			case '}':
+				dict_level--;
+				if (struct_level <= 0 && dict_level <= 0)
+					complete = TRUE;
+				break;
+			case 'a':
+				break;
+			default:
+				if (struct_level <= 0 && dict_level <= 0)
+					complete = TRUE;
+				break;
+			}
+
+			type[len] = sig[i];
+
+			if (complete)
+				break;
+		}
+
 
 		if (direction)
 			g_string_append_printf(gstr,
-					" direction=\"%s\"/>\n", direction);
+					"\t\t\t<arg type=\"%s\" direction=\"%s\"/>\n",
+					type, direction);
 		else
-			g_string_append_printf(gstr, "/>\n");
-
+			g_string_append_printf(gstr,
+					"\t\t\t<arg type=\"%s\"/>\n",
+					type);
 	}
 }
 
@@ -82,47 +125,26 @@ static void generate_interface_xml(GString *gstr, struct interface_data *iface)
 	const GDBusSignalTable *signal;
 
 	for (method = iface->methods; method && method->name; method++) {
-		gboolean deprecated = method->flags &
-						G_DBUS_METHOD_FLAG_DEPRECATED;
-		gboolean noreply = method->flags &
-						G_DBUS_METHOD_FLAG_NOREPLY;
-
-		if (!deprecated && !noreply &&
-				!(method->in_args && method->in_args->name) &&
-				!(method->out_args && method->out_args->name))
+		if (!strlen(method->signature) && !strlen(method->reply))
 			g_string_append_printf(gstr, "\t\t<method name=\"%s\"/>\n",
 								method->name);
 		else {
 			g_string_append_printf(gstr, "\t\t<method name=\"%s\">\n",
 								method->name);
-			print_arguments(gstr, method->in_args, "in");
-			print_arguments(gstr, method->out_args, "out");
-
-			if (deprecated)
-				g_string_append_printf(gstr, "\t\t\t<annotation name=\"org.freedesktop.DBus.Deprecated\" value=\"true\"/>\n");
-
-			if (noreply)
-				g_string_append_printf(gstr, "\t\t\t<annotation name=\"org.freedesktop.DBus.Method.NoReply\" value=\"true\"/>\n");
-
+			print_arguments(gstr, method->signature, "in");
+			print_arguments(gstr, method->reply, "out");
 			g_string_append_printf(gstr, "\t\t</method>\n");
 		}
 	}
 
 	for (signal = iface->signals; signal && signal->name; signal++) {
-		gboolean deprecated = signal->flags &
-						G_DBUS_SIGNAL_FLAG_DEPRECATED;
-
-		if (!deprecated && !(signal->args && signal->args->name))
+		if (!strlen(signal->signature))
 			g_string_append_printf(gstr, "\t\t<signal name=\"%s\"/>\n",
 								signal->name);
 		else {
 			g_string_append_printf(gstr, "\t\t<signal name=\"%s\">\n",
 								signal->name);
-			print_arguments(gstr, signal->args, NULL);
-
-			if (deprecated)
-				g_string_append_printf(gstr, "\t\t\t<annotation name=\"org.freedesktop.DBus.Deprecated\" value=\"true\"/>\n");
-
+			print_arguments(gstr, signal->signature, NULL);
 			g_string_append_printf(gstr, "\t\t</signal>\n");
 		}
 	}
@@ -173,6 +195,11 @@ static DBusMessage *introspect(DBusConnection *connection,
 {
 	struct generic_data *data = user_data;
 	DBusMessage *reply;
+
+	if (!dbus_message_has_signature(message, DBUS_TYPE_INVALID_AS_STRING)) {
+		error("Unexpected signature to introspect call");
+		return NULL;
+	}
 
 	if (data->introspect == NULL)
 		generate_introspection_xml(connection, data,
@@ -389,27 +416,6 @@ static struct interface_data *find_interface(GSList *interfaces,
 	return NULL;
 }
 
-static gboolean g_dbus_args_have_signature(const GDBusArgInfo *args,
-							DBusMessage *message)
-{
-	const char *sig = dbus_message_get_signature(message);
-	const char *p = NULL;
-
-	for (; args && args->signature && *sig; args++) {
-		p = args->signature;
-
-		for (; *sig && *p; sig++, p++) {
-			if (*p != *sig)
-				return FALSE;
-		}
-	}
-
-	if (*sig || (p && *p) || (args && args->signature))
-		return FALSE;
-
-	return TRUE;
-}
-
 static DBusHandlerResult generic_message(DBusConnection *connection,
 					DBusMessage *message, void *user_data)
 {
@@ -430,8 +436,8 @@ static DBusHandlerResult generic_message(DBusConnection *connection,
 							method->name) == FALSE)
 			continue;
 
-		if (g_dbus_args_have_signature(method->in_args,
-							message) == FALSE)
+		if (dbus_message_has_signature(message,
+						method->signature) == FALSE)
 			continue;
 
 		if (check_privilege(connection, message, method,
@@ -485,9 +491,8 @@ done:
 	g_free(parent_path);
 }
 
-static const GDBusMethodTable introspect_methods[] = {
-	{ GDBUS_METHOD("Introspect", NULL,
-			GDBUS_ARGS({ "xml", "s" }), introspect) },
+static GDBusMethodTable introspect_methods[] = {
+	{ "Introspect",	"",	"s", introspect	},
 	{ }
 };
 
@@ -588,7 +593,7 @@ static void object_path_unref(DBusConnection *connection, const char *path)
 
 static gboolean check_signal(DBusConnection *conn, const char *path,
 				const char *interface, const char *name,
-				const GDBusArgInfo **args)
+				const char **args)
 {
 	struct generic_data *data = NULL;
 	struct interface_data *iface;
@@ -611,13 +616,17 @@ static gboolean check_signal(DBusConnection *conn, const char *path,
 
 	for (signal = iface->signals; signal && signal->name; signal++) {
 		if (!strcmp(signal->name, name)) {
-			*args = signal->args;
-			return TRUE;
+			*args = signal->signature;
+			break;
 		}
 	}
 
-	error("No signal named %s on interface %s", name, interface);
-	return FALSE;
+	if (*args == NULL) {
+		error("No signal named %s on interface %s", name, interface);
+		return FALSE;
+	}
+
+	return TRUE;
 }
 
 static dbus_bool_t emit_signal_valist(DBusConnection *conn,
@@ -629,7 +638,7 @@ static dbus_bool_t emit_signal_valist(DBusConnection *conn,
 {
 	DBusMessage *signal;
 	dbus_bool_t ret;
-	const GDBusArgInfo *args;
+	const char *signature, *args;
 
 	if (!check_signal(conn, path, interface, name, &args))
 		return FALSE;
@@ -644,7 +653,8 @@ static dbus_bool_t emit_signal_valist(DBusConnection *conn,
 	if (!ret)
 		goto fail;
 
-	if (g_dbus_args_have_signature(args, signal) == FALSE) {
+	signature = dbus_message_get_signature(signal);
+	if (strcmp(args, signature) != 0) {
 		error("%s.%s: expected signature'%s' but got '%s'",
 				interface, name, args, signature);
 		ret = FALSE;

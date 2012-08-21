@@ -2,7 +2,7 @@
  *
  *  DHCP library with GLib integration
  *
- *  Copyright (C) 2009-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2009-2010  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -21,8 +21,6 @@
 
 #ifndef __G_DHCP_H
 #define __G_DHCP_H
-
-#include <stdint.h>
 
 #include <glib.h>
 
@@ -52,13 +50,6 @@ typedef enum {
 	G_DHCP_CLIENT_EVENT_LEASE_LOST,
 	G_DHCP_CLIENT_EVENT_IPV4LL_LOST,
 	G_DHCP_CLIENT_EVENT_ADDRESS_CONFLICT,
-	G_DHCP_CLIENT_EVENT_INFORMATION_REQ,
-	G_DHCP_CLIENT_EVENT_SOLICITATION,
-	G_DHCP_CLIENT_EVENT_ADVERTISE,
-	G_DHCP_CLIENT_EVENT_REQUEST,
-	G_DHCP_CLIENT_EVENT_RENEW,
-	G_DHCP_CLIENT_EVENT_REBIND,
-	G_DHCP_CLIENT_EVENT_RELEASE,
 } GDHCPClientEvent;
 
 typedef enum {
@@ -74,31 +65,6 @@ typedef enum {
 #define G_DHCP_DOMAIN_NAME	0x0f
 #define G_DHCP_HOST_NAME	0x0c
 #define G_DHCP_NTP_SERVER	0x2a
-#define G_DHCP_CLIENT_ID	0x3d
-
-#define G_DHCPV6_CLIENTID	1
-#define G_DHCPV6_SERVERID	2
-#define G_DHCPV6_IA_NA		3
-#define G_DHCPV6_IA_TA		4
-#define G_DHCPV6_IAADDR		5
-#define G_DHCPV6_ORO		6
-#define G_DHCPV6_STATUS_CODE	13
-#define G_DHCPV6_RAPID_COMMIT	14
-#define G_DHCPV6_DNS_SERVERS	23
-#define G_DHCPV6_SNTP_SERVERS	31
-
-#define G_DHCPV6_ERROR_SUCCESS	0
-#define G_DHCPV6_ERROR_FAILURE	1
-#define G_DHCPV6_ERROR_NO_ADDR	2
-#define G_DHCPV6_ERROR_BINDING	3
-#define G_DHCPV6_ERROR_LINK	4
-#define G_DHCPV6_ERROR_MCAST	5
-
-typedef enum {
-	G_DHCPV6_DUID_LLT = 1,
-	G_DHCPV6_DUID_EN  = 2,
-	G_DHCPV6_DUID_LL  = 3,
-} GDHCPDuidType;
 
 typedef void (*GDHCPClientEventFunc) (GDHCPClient *client, gpointer user_data);
 
@@ -119,10 +85,7 @@ void g_dhcp_client_register_event(GDHCPClient *client,
 					gpointer user_data);
 
 GDHCPClientError g_dhcp_client_set_request(GDHCPClient *client,
-						unsigned int option_code);
-void g_dhcp_client_clear_requests(GDHCPClient *dhcp_client);
-void g_dhcp_client_clear_values(GDHCPClient *dhcp_client);
-GDHCPClientError g_dhcp_client_set_id(GDHCPClient *client);
+						unsigned char option_code);
 GDHCPClientError g_dhcp_client_set_send(GDHCPClient *client,
 						unsigned char option_code,
 						const char *option_value);
@@ -135,26 +98,9 @@ int g_dhcp_client_get_index(GDHCPClient *client);
 
 void g_dhcp_client_set_debug(GDHCPClient *client,
 				GDHCPDebugFunc func, gpointer user_data);
-int g_dhcpv6_create_duid(GDHCPDuidType duid_type, int index, int type,
-			unsigned char **duid, int *duid_len);
-int g_dhcpv6_client_set_duid(GDHCPClient *dhcp_client, unsigned char *duid,
-			int duid_len);
-void g_dhcpv6_client_set_send(GDHCPClient *dhcp_client, uint16_t option_code,
-			uint8_t *option_value, uint16_t option_len);
-uint16_t g_dhcpv6_client_get_status(GDHCPClient *dhcp_client);
-int g_dhcpv6_client_set_oro(GDHCPClient *dhcp_client, int args, ...);
-void g_dhcpv6_client_create_iaid(GDHCPClient *dhcp_client, int index,
-				unsigned char *iaid);
-int g_dhcpv6_client_get_timeouts(GDHCPClient *dhcp_client,
-				uint32_t *T1, uint32_t *T2,
-				time_t *last_renew, time_t *last_rebind,
-				time_t *expire);
-uint32_t g_dhcpv6_client_get_iaid(GDHCPClient *dhcp_client);
-int g_dhcpv6_client_set_ia(GDHCPClient *dhcp_client, int index,
-		int code, uint32_t *T1, uint32_t *T2, gboolean add_iaaddr);
-void g_dhcpv6_client_reset_renew(GDHCPClient *dhcp_client);
-void g_dhcpv6_client_reset_rebind(GDHCPClient *dhcp_client);
-void g_dhcpv6_client_set_expire(GDHCPClient *dhcp_client, uint32_t timeout);
+#if defined TIZEN_EXT
+void g_dhcp_client_set_address_known(GDHCPClient *client, gboolean known);
+#endif
 
 /* DHCP Server */
 typedef enum {

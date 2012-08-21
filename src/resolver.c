@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -36,18 +36,11 @@
 
 #define RESOLVER_FLAG_PUBLIC (1 << 0)
 
-/*
- * Threshold for RDNSS lifetime. Will be used to trigger RS
- * before RDNSS entries actually expire
- */
-#define RESOLVER_LIFETIME_REFRESH_THRESHOLD 0.8
-
 struct entry_data {
 	char *interface;
 	char *domain;
 	char *server;
 	unsigned int flags;
-	unsigned int lifetime;
 	guint timeout;
 };
 
@@ -129,8 +122,17 @@ static int resolvfile_export(void)
 
 	old_umask = umask(022);
 
+#if defined TIZEN_EXT
+/*
+ * Description: /etc path is read-only in SLP
+ *              /opt/etc/resolv.conf rather than /etc/resolv.conf
+ */
+	fd = open("/opt/etc/resolv.conf", O_RDWR | O_CREAT | O_CLOEXEC,
+					S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+#else
 	fd = open("/etc/resolv.conf", O_RDWR | O_CREAT | O_CLOEXEC,
 					S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+#endif
 	if (fd < 0) {
 		err = -errno;
 		goto done;
@@ -260,47 +262,11 @@ static gboolean resolver_expire_cb(gpointer user_data)
 	return FALSE;
 }
 
-static gboolean resolver_refresh_cb(gpointer user_data)
-{
-	struct entry_data *entry = user_data;
-	int index;
-	unsigned int interval;
-	struct connman_service *service = NULL;
-
-	/* Round up what we have left from lifetime */
-	interval = entry->lifetime *
-		(1 - RESOLVER_LIFETIME_REFRESH_THRESHOLD) + 1.0;
-
-	DBG("RDNSS start interface %s domain %s "
-			"server %s remaining lifetime %d",
-			entry->interface, entry->domain,
-			entry->server, interval);
-
-	entry->timeout = g_timeout_add_seconds(interval,
-			resolver_expire_cb, entry);
-
-	index = connman_inet_ifindex(entry->interface);
-	if (index >= 0) {
-		service = __connman_service_lookup_from_index(index);
-		if (service != NULL) {
-			/*
-			 * Send Router Solicitation to refresh RDNSS entries
-			 * before their lifetime expires
-			 */
-			__connman_refresh_rs_ipv6(
-					__connman_service_get_network(service),
-					index);
-		}
-	}
-	return FALSE;
-}
-
 static int append_resolver(const char *interface, const char *domain,
 				const char *server, unsigned int lifetime,
 							unsigned int flags)
 {
 	struct entry_data *entry;
-	unsigned int interval;
 
 	DBG("interface %s domain %s server %s lifetime %d flags %d",
 				interface, domain, server, lifetime, flags);
@@ -316,24 +282,17 @@ static int append_resolver(const char *interface, const char *domain,
 	entry->domain = g_strdup(domain);
 	entry->server = g_strdup(server);
 	entry->flags = flags;
-	entry->lifetime = lifetime;
 	if (lifetime) {
 		int index;
-		interval = lifetime * RESOLVER_LIFETIME_REFRESH_THRESHOLD;
-
-		DBG("RDNSS start interface %s domain %s "
-				"server %s lifetime threshold %d",
-				interface, domain, server, interval);
-
-		entry->timeout = g_timeout_add_seconds(interval,
-				resolver_refresh_cb, entry);
+		entry->timeout = g_timeout_add_seconds(lifetime,
+						resolver_expire_cb, entry);
 
 		/*
 		 * We update the service only for those nameservers
 		 * that are automagically added via netlink (lifetime > 0)
 		 */
 		index = connman_inet_ifindex(interface);
-		if (server != NULL && index >= 0) {
+		if (index >= 0) {
 			struct connman_service *service;
 			service = __connman_service_lookup_from_index(index);
 			if (service != NULL)
@@ -362,7 +321,7 @@ static int append_resolver(const char *interface, const char *domain,
 int connman_resolver_append(const char *interface, const char *domain,
 						const char *server)
 {
-	GSList *list;
+	GSList *list, *matches = NULL;
 
 	DBG("interface %s domain %s server %s", interface, domain, server);
 
@@ -372,14 +331,17 @@ int connman_resolver_append(const char *interface, const char *domain,
 	for (list = entry_list; list; list = list->next) {
 		struct entry_data *entry = list->data;
 
-		if (entry->timeout > 0)
+		if (entry->timeout > 0 ||
+				g_strcmp0(entry->interface, interface) != 0 ||
+				g_strcmp0(entry->domain, domain) != 0 ||
+				g_strcmp0(entry->server, server) != 0)
 			continue;
 
-		if (g_strcmp0(entry->interface, interface) == 0 &&
-				g_strcmp0(entry->domain, domain) == 0 &&
-				g_strcmp0(entry->server, server) == 0)
-			return -EEXIST;
+		matches = g_slist_append(matches, entry);
 	}
+
+	if (matches != NULL)
+		remove_entries(matches);
 
 	return append_resolver(interface, domain, server, 0, 0);
 }
@@ -397,21 +359,20 @@ int connman_resolver_append_lifetime(const char *interface, const char *domain,
 				const char *server, unsigned int lifetime)
 {
 	GSList *list;
-	unsigned int interval;
 
 	DBG("interface %s domain %s server %s lifetime %d",
 				interface, domain, server, lifetime);
 
-	if (server == NULL && domain == NULL)
+	if (server == NULL)
 		return -EINVAL;
 
 	for (list = entry_list; list; list = list->next) {
 		struct entry_data *entry = list->data;
 
-		if (entry->timeout == 0 ||
-				g_strcmp0(entry->interface, interface) != 0 ||
-				g_strcmp0(entry->domain, domain) != 0 ||
-				g_strcmp0(entry->server, server) != 0)
+		if (!entry->timeout ||
+				g_strcmp0(entry->interface, interface) ||
+				g_strcmp0(entry->domain, domain) ||
+				g_strcmp0(entry->server, server))
 			continue;
 
 		g_source_remove(entry->timeout);
@@ -421,14 +382,8 @@ int connman_resolver_append_lifetime(const char *interface, const char *domain,
 			return 0;
 		}
 
-		interval = lifetime * RESOLVER_LIFETIME_REFRESH_THRESHOLD;
-
-		DBG("RDNSS start interface %s domain %s "
-				"server %s lifetime threshold %d",
-				interface, domain, server, interval);
-
-		entry->timeout = g_timeout_add_seconds(interval,
-				resolver_refresh_cb, entry);
+		entry->timeout = g_timeout_add_seconds(lifetime,
+						resolver_expire_cb, entry);
 		return 0;
 	}
 
@@ -450,20 +405,23 @@ int connman_resolver_remove(const char *interface, const char *domain,
 
 	DBG("interface %s domain %s server %s", interface, domain, server);
 
+	if (server == NULL)
+		return -EINVAL;
+
 	for (list = entry_list; list; list = list->next) {
 		struct entry_data *entry = list->data;
 
-		if (g_strcmp0(entry->interface, interface) != 0)
+		if (interface != NULL &&
+				g_strcmp0(entry->interface, interface) != 0)
 			continue;
 
-		if (g_strcmp0(entry->domain, domain) != 0)
+		if (domain != NULL && g_strcmp0(entry->domain, domain) != 0)
 			continue;
 
 		if (g_strcmp0(entry->server, server) != 0)
 			continue;
 
 		matches = g_slist_append(matches, entry);
-		break;
 	}
 
 	if (matches == NULL)
@@ -507,6 +465,32 @@ int connman_resolver_remove_all(const char *interface)
 }
 
 /**
+ * connman_resolver_append_public_server:
+ * @server: server address
+ *
+ * Append public resolver server address to current list
+ */
+int connman_resolver_append_public_server(const char *server)
+{
+	DBG("server %s", server);
+
+	return append_resolver(NULL, NULL, server, 0, RESOLVER_FLAG_PUBLIC);
+}
+
+/**
+ * connman_resolver_remove_public_server:
+ * @server: server address
+ *
+ * Remove public resolver server address to current list
+ */
+int connman_resolver_remove_public_server(const char *server)
+{
+	DBG("server %s", server);
+
+	return connman_resolver_remove(NULL, NULL, server);
+}
+
+/**
  * connman_resolver_flush:
  *
  * Flush pending resolver requests
@@ -519,69 +503,8 @@ void connman_resolver_flush(void)
 	return;
 }
 
-int __connman_resolver_redo_servers(const char *interface)
-{
-	GSList *list;
-
-	if (dnsproxy_enabled == FALSE)
-		return 0;
-
-	DBG("interface %s", interface);
-
-	if (interface == NULL)
-		return -EINVAL;
-
-	for (list = entry_list; list; list = list->next) {
-		struct entry_data *entry = list->data;
-
-		if (entry->timeout == 0 ||
-				g_strcmp0(entry->interface, interface) != 0)
-			continue;
-
-		/*
-		 * We remove the server, and then re-create so that it will
-		 * use proper source addresses when sending DNS queries.
-		 */
-		__connman_dnsproxy_remove(entry->interface, entry->domain,
-					entry->server);
-		/*
-		 * Remove also the resolver timer for the old server entry.
-		 * A new timer will be set for the new server entry
-		 * when the next Router Advertisement message arrives
-		 * with RDNSS/DNSSL settings.
-		 */
-		g_source_remove(entry->timeout);
-
-		__connman_dnsproxy_append(entry->interface, entry->domain,
-					entry->server);
-	}
-
-	return 0;
-}
-
-static void free_entry(gpointer data)
-{
-	struct entry_data *entry = data;
-	g_free(entry->interface);
-	g_free(entry->domain);
-	g_free(entry->server);
-	g_free(entry);
-}
-
-static void free_resolvfile(gpointer data)
-{
-	struct resolvfile_entry *entry = data;
-	g_free(entry->interface);
-	g_free(entry->domain);
-	g_free(entry->server);
-	g_free(entry);
-}
-
 int __connman_resolver_init(connman_bool_t dnsproxy)
 {
-	int i;
-	char **ns;
-
 	DBG("dnsproxy %d", dnsproxy);
 
 	if (dnsproxy == FALSE)
@@ -594,12 +517,6 @@ int __connman_resolver_init(connman_bool_t dnsproxy)
 
 	dnsproxy_enabled = TRUE;
 
-	ns = connman_setting_get_string_list("FallbackNameservers");
-	for (i = 0; ns != NULL && ns[i] != NULL; i += 1) {
-		DBG("server %s", ns[i]);
-		append_resolver(NULL, NULL, ns[i], 0, RESOLVER_FLAG_PUBLIC);
-	}
-
 	return 0;
 }
 
@@ -609,18 +526,4 @@ void __connman_resolver_cleanup(void)
 
 	if (dnsproxy_enabled == TRUE)
 		__connman_dnsproxy_cleanup();
-	else {
-		GList *list;
-		GSList *slist;
-
-		for (list = resolvfile_list; list; list = g_list_next(list))
-			free_resolvfile(list->data);
-		g_list_free(resolvfile_list);
-		resolvfile_list = NULL;
-
-		for (slist = entry_list; slist; slist = g_slist_next(slist))
-			free_entry(slist->data);
-		g_slist_free(entry_list);
-		entry_list = NULL;
-	}
 }

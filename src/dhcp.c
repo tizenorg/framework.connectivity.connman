@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -40,7 +40,7 @@ struct connman_dhcp {
 	dhcp_cb callback;
 
 	char **nameservers;
-	char **timeservers;
+	char *timeserver;
 	char *pac;
 
 	GDHCPClient *dhcp_client;
@@ -51,11 +51,11 @@ static GHashTable *network_table;
 static void dhcp_free(struct connman_dhcp *dhcp)
 {
 	g_strfreev(dhcp->nameservers);
-	g_strfreev(dhcp->timeservers);
+	g_free(dhcp->timeserver);
 	g_free(dhcp->pac);
 
 	dhcp->nameservers = NULL;
-	dhcp->timeservers = NULL;
+	dhcp->timeserver = NULL;
 	dhcp->pac = NULL;
 }
 
@@ -94,13 +94,7 @@ static void dhcp_invalidate(struct connman_dhcp *dhcp, connman_bool_t callback)
 
 	__connman_service_set_domainname(service, NULL);
 	__connman_service_set_pac(service, NULL);
-
-	if (dhcp->timeservers != NULL) {
-		for (i = 0; dhcp->timeservers[i] != NULL; i++) {
-			__connman_service_timeserver_remove(service,
-							dhcp->timeservers[i]);
-		}
-	}
+	__connman_service_timeserver_remove(service, dhcp->timeserver);
 
 	if (dhcp->nameservers != NULL) {
 		for (i = 0; dhcp->nameservers[i] != NULL; i++) {
@@ -187,7 +181,7 @@ static void lease_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 	char *address, *netmask = NULL, *gateway = NULL;
 	const char *c_address, *c_gateway;
 	char *domainname = NULL, *hostname = NULL;
-	char **nameservers, **timeservers, *pac = NULL;
+	char **nameservers, *timeserver = NULL, *pac = NULL;
 	int ns_entries;
 	struct connman_ipconfig *ipconfig;
 	struct connman_service *service;
@@ -227,8 +221,6 @@ static void lease_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 		gateway = g_strdup(option->data);
 
 	prefixlen = __connman_ipconfig_netmask_prefix_len(netmask);
-	if (prefixlen == 255)
-		connman_warn("netmask: %s is invalid", netmask);
 
 	DBG("c_address %s", c_address);
 
@@ -246,7 +238,8 @@ static void lease_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 		ip_change = FALSE;
 
 	option = g_dhcp_client_get_option(dhcp_client, G_DHCP_DNS_SERVER);
-	ns_entries = g_list_length(option);
+	for (ns_entries = 0, list = option; list; list = list->next)
+		ns_entries += 1;
 	nameservers = g_try_new0(char *, ns_entries + 1);
 	if (nameservers != NULL) {
 		for (i = 0, list = option; list; list = list->next, i++)
@@ -263,19 +256,14 @@ static void lease_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 		hostname = g_strdup(option->data);
 
 	option = g_dhcp_client_get_option(dhcp_client, G_DHCP_NTP_SERVER);
-	ns_entries = g_list_length(option);
-	timeservers = g_try_new0(char *, ns_entries + 1);
-	if (timeservers != NULL) {
-		for (i = 0, list = option; list; list = list->next, i++)
-			timeservers[i] = g_strdup(list->data);
-		timeservers[ns_entries] = NULL;
-	}
+	if (option != NULL)
+		timeserver = g_strdup(option->data);
 
 	option = g_dhcp_client_get_option(dhcp_client, 252);
 	if (option != NULL)
 		pac = g_strdup(option->data);
 
-	__connman_ipconfig_set_method(ipconfig, CONNMAN_IPCONFIG_METHOD_DHCP);
+	connman_ipconfig_set_method(ipconfig, CONNMAN_IPCONFIG_METHOD_DHCP);
 
 	if (ip_change == TRUE) {
 		__connman_ipconfig_set_local(ipconfig, address);
@@ -294,8 +282,7 @@ static void lease_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 
 		dhcp->nameservers = nameservers;
 
-		for (i = 0; dhcp->nameservers != NULL &&
-					dhcp->nameservers[i] != NULL; i++) {
+		for (i = 0; dhcp->nameservers[i] != NULL; i++) {
 			__connman_service_nameserver_append(service,
 						dhcp->nameservers[i], FALSE);
 		}
@@ -303,24 +290,18 @@ static void lease_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 		g_strfreev(nameservers);
 	}
 
-	if (compare_string_arrays(timeservers, dhcp->timeservers) == FALSE) {
-		if (dhcp->timeservers != NULL) {
-			for (i = 0; dhcp->timeservers[i] != NULL; i++) {
-				__connman_service_timeserver_remove(service,
-							dhcp->timeservers[i]);
-			}
-			g_strfreev(dhcp->timeservers);
+	if (g_strcmp0(timeserver, dhcp->timeserver) != 0) {
+		if (dhcp->timeserver != NULL) {
+			__connman_service_timeserver_remove(service,
+							dhcp->timeserver);
+			g_free(dhcp->timeserver);
 		}
 
-		dhcp->timeservers = timeservers;
+		dhcp->timeserver = timeserver;
 
-		for (i = 0; dhcp->timeservers != NULL &&
-					 dhcp->timeservers[i] != NULL; i++) {
+		if (dhcp->timeserver != NULL)
 			__connman_service_timeserver_append(service,
-							dhcp->timeservers[i]);
-		}
-	} else {
-		g_strfreev(timeservers);
+							dhcp->timeserver);
 	}
 
 	if (g_strcmp0(pac, dhcp->pac) != 0) {
@@ -360,6 +341,28 @@ static void ipv4ll_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 
 	DBG("IPV4LL available");
 
+#if defined TIZEN_EXT
+	/*
+	 * Description: When DHCP is failed,
+	 *              most of naive users cannot understand auto-generated IP
+	 *              (IPV4 link local) and serious troubles to make Internet connection.
+	 */
+	dhcp_invalidate(dhcp, TRUE);
+
+	service = __connman_service_lookup_from_network(dhcp->network);
+	if (service == NULL)
+		return;
+
+	__connman_service_ipconfig_indicate_state(service,
+			CONNMAN_SERVICE_STATE_IDLE,
+			CONNMAN_IPCONFIG_TYPE_IPV4);
+	__connman_service_ipconfig_indicate_state(service,
+			CONNMAN_SERVICE_STATE_IDLE,
+			CONNMAN_IPCONFIG_TYPE_IPV6);
+
+	return;
+#endif
+
 	service = __connman_service_lookup_from_network(dhcp->network);
 	if (service == NULL)
 		return;
@@ -373,7 +376,7 @@ static void ipv4ll_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 
 	prefixlen = __connman_ipconfig_netmask_prefix_len(netmask);
 
-	__connman_ipconfig_set_method(ipconfig, CONNMAN_IPCONFIG_METHOD_DHCP);
+	connman_ipconfig_set_method(ipconfig, CONNMAN_IPCONFIG_METHOD_DHCP);
 	__connman_ipconfig_set_local(ipconfig, address);
 	__connman_ipconfig_set_prefixlen(ipconfig, prefixlen);
 	__connman_ipconfig_set_gateway(ipconfig, NULL);
@@ -397,6 +400,9 @@ static int dhcp_request(struct connman_dhcp *dhcp)
 	GDHCPClientError error;
 	const char *hostname;
 	int index;
+#if defined TIZEN_EXT
+	const char *last_address;
+#endif
 
 	DBG("dhcp %p", dhcp);
 
@@ -408,8 +414,6 @@ static int dhcp_request(struct connman_dhcp *dhcp)
 
 	if (getenv("CONNMAN_DHCP_DEBUG"))
 		g_dhcp_client_set_debug(dhcp_client, dhcp_debug, "DHCP");
-
-	g_dhcp_client_set_id(dhcp_client);
 
 	hostname = connman_utsname_get_hostname();
 	if (hostname != NULL)
@@ -445,8 +449,17 @@ static int dhcp_request(struct connman_dhcp *dhcp)
 	service = __connman_service_lookup_from_network(dhcp->network);
 	ipconfig = __connman_service_get_ip4config(service);
 
+#if defined TIZEN_EXT
+	last_address = __connman_ipconfig_get_dhcp_address(ipconfig);
+
+	if (last_address != NULL && strlen(last_address) > 0)
+		g_dhcp_client_set_address_known(dhcp_client, TRUE);
+
+	return g_dhcp_client_start(dhcp_client, last_address);
+#else
 	return g_dhcp_client_start(dhcp_client,
 				__connman_ipconfig_get_dhcp_address(ipconfig));
+#endif
 }
 
 static int dhcp_release(struct connman_dhcp *dhcp)

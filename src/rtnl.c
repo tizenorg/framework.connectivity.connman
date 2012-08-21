@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -90,7 +90,16 @@ static connman_bool_t ether_blacklisted(const char *name)
 	if (name == NULL)
 		return TRUE;
 
-	if (__connman_device_isfiltered(name) == TRUE)
+	/* virtual interface from VMware */
+	if (g_str_has_prefix(name, "vmnet") == TRUE)
+		return TRUE;
+
+	/* virtual interface from VirtualBox */
+	if (g_str_has_prefix(name, "vboxnet") == TRUE)
+		return TRUE;
+
+	/* virtual interface from Virtual Machine Manager */
+	if (g_str_has_prefix(name, "virbr") == TRUE)
 		return TRUE;
 
 	return FALSE;
@@ -282,9 +291,7 @@ static void trigger_rtnl(int index, void *user_data)
 	}
 
 	if (rtnl->newgateway) {
-		const char *gateway =
-			__connman_ipconfig_get_gateway_from_index(index,
-					CONNMAN_IPCONFIG_TYPE_ALL);
+		const char *gateway = __connman_ipconfig_get_gateway_from_index(index);
 
 		if (gateway != NULL)
 			rtnl->newgateway(index, gateway);
@@ -430,6 +437,12 @@ static void process_newlink(unsigned short type, int index, unsigned flags,
 	case ARPHRD_LOOPBACK:
 	case ARPHDR_PHONET_PIPE:
 	case ARPHRD_NONE:
+#if defined TIZEN_EXT
+/*
+ * Description: SLP requires ARPHRD_PPP PPP type device
+ */
+	case ARPHRD_PPP:
+#endif
 		__connman_ipconfig_newlink(index, type, flags,
 							str, mtu, &stats);
 		break;
@@ -456,6 +469,13 @@ static void process_newlink(unsigned short type, int index, unsigned flags,
 
 		if (type == ARPHRD_ETHER)
 			read_uevent(interface);
+
+#if defined TIZEN_EXT
+		if (type == ARPHRD_PPP) {
+			interface->service_type = CONNMAN_SERVICE_TYPE_CELLULAR;
+			interface->device_type = CONNMAN_DEVICE_TYPE_CELLULAR;
+		}
+#endif
 
 		__connman_technology_add_interface(interface->service_type,
 			interface->index, interface->name, interface->ident);
@@ -506,6 +526,13 @@ static void process_dellink(unsigned short type, int index, unsigned flags,
 	case ARPHRD_ETHER:
 	case ARPHRD_LOOPBACK:
 	case ARPHRD_NONE:
+#if defined TIZEN_EXT
+/*
+ * Description: SLP requires ARPHRD_PPP PPP type device
+ */
+	case ARPHRD_PPP:
+		DBG("interface index(%d)", index);
+#endif
 		__connman_ipconfig_dellink(index, &stats);
 		break;
 	}
@@ -594,20 +621,6 @@ static void process_newaddr(unsigned char family, unsigned char prefixlen,
 
 	__connman_ipconfig_newaddr(index, family, label,
 					prefixlen, ip_string);
-
-	if (family == AF_INET6) {
-		/*
-		 * Re-create RDNSS configured servers if there are any
-		 * for this interface. This is done because we might
-		 * have now properly configured interface with proper
-		 * autoconfigured address.
-		 */
-		char *interface = connman_inet_ifname(index);
-
-		__connman_resolver_redo_servers(interface);
-
-		g_free(interface);
-	}
 }
 
 static void process_deladdr(unsigned char family, unsigned char prefixlen,
@@ -1180,22 +1193,22 @@ static const char **rtnl_nd_opt_dnssl(struct nd_opt_hdr *opt, guint32 *lifetime)
 static void rtnl_newnduseropt(struct nlmsghdr *hdr)
 {
 	struct nduseroptmsg *msg = (struct nduseroptmsg *) NLMSG_DATA(hdr);
-	struct nd_opt_hdr *opt;
+	struct nd_opt_hdr *opt = (void *)&msg[1];
 	guint32 lifetime = -1;
 	const char **domains = NULL;
 	struct in6_addr *servers = NULL;
-	int i, nr_servers = 0;
+	int nr_servers = 0;
 	int msglen = msg->nduseropt_opts_len;
 	char *interface;
 
-	DBG("family %d index %d len %d type %d code %d",
-		msg->nduseropt_family, msg->nduseropt_ifindex,
-		msg->nduseropt_opts_len, msg->nduseropt_icmp_type,
-		msg->nduseropt_icmp_code);
+	DBG("family %02x index %x len %04x type %02x code %02x",
+	    msg->nduseropt_family, msg->nduseropt_ifindex,
+	    msg->nduseropt_opts_len, msg->nduseropt_icmp_type,
+	    msg->nduseropt_icmp_code);
 
 	if (msg->nduseropt_family != AF_INET6 ||
-			msg->nduseropt_icmp_type != ND_ROUTER_ADVERT ||
-			msg->nduseropt_icmp_code != 0)
+	    msg->nduseropt_icmp_type != ND_ROUTER_ADVERT ||
+	    msg->nduseropt_icmp_code != 0)
 		return;
 
 	interface = connman_inet_ifname(msg->nduseropt_ifindex);
@@ -1203,37 +1216,40 @@ static void rtnl_newnduseropt(struct nlmsghdr *hdr)
 		return;
 
 	for (opt = (void *)&msg[1];
-			msglen > 0;
-			msglen -= opt->nd_opt_len * 8,
-			opt = ((void *)opt) + opt->nd_opt_len*8) {
+	     msglen >= 2 && msglen >= opt->nd_opt_len && opt->nd_opt_len;
+	     msglen -= opt->nd_opt_len,
+		     opt = ((void *)opt) + opt->nd_opt_len*8) {
 
-		DBG("remaining %d nd opt type %d len %d\n",
-			msglen, opt->nd_opt_type, opt->nd_opt_len);
+		DBG("nd opt type %d len %d\n",
+		    opt->nd_opt_type, opt->nd_opt_len);
 
-		if (opt->nd_opt_type == 25) { /* ND_OPT_RDNSS */
-			char buf[40];
-
+		if (opt->nd_opt_type == 25)
 			servers = rtnl_nd_opt_rdnss(opt, &lifetime,
-								&nr_servers);
-			for (i = 0; i < nr_servers; i++) {
-				if (!inet_ntop(AF_INET6, servers + i, buf,
-								sizeof(buf)))
-					continue;
-
-				connman_resolver_append_lifetime(interface,
-							NULL, buf, lifetime);
-			}
-
-		} else if (opt->nd_opt_type == 31) { /* ND_OPT_DNSSL */
-			g_free(domains);
-
+						    &nr_servers);
+		else if (opt->nd_opt_type == 31)
 			domains = rtnl_nd_opt_dnssl(opt, &lifetime);
-			for (i = 0; domains != NULL && domains[i] != NULL; i++)
-				connman_resolver_append_lifetime(interface,
-						domains[i], NULL, lifetime);
-		}
 	}
 
+	if (nr_servers) {
+		int i, j;
+		char buf[40];
+
+		for (i = 0; i < nr_servers; i++) {
+			if (!inet_ntop(AF_INET6, servers + i, buf, sizeof(buf)))
+				continue;
+
+			if (domains == NULL || domains[0] == NULL) {
+				connman_resolver_append_lifetime(interface,
+							NULL, buf, lifetime);
+				continue;
+			}
+
+			for (j = 0; domains[j]; j++)
+				connman_resolver_append_lifetime(interface,
+								domains[j],
+								buf, lifetime);
+		}
+	}
 	g_free(domains);
 	g_free(interface);
 }
@@ -1255,8 +1271,6 @@ static const char *type2string(uint16_t type)
 		return "NEWLINK";
 	case RTM_DELLINK:
 		return "DELLINK";
-	case RTM_GETADDR:
-		return "GETADDR";
 	case RTM_NEWADDR:
 		return "NEWADDR";
 	case RTM_DELADDR:
@@ -1358,11 +1372,10 @@ static void rtnl_message(void *buf, size_t len)
 		if (!NLMSG_OK(hdr, len))
 			break;
 
-		DBG("%s len %d type %d flags 0x%04x seq %d pid %d",
+		DBG("%s len %d type %d flags 0x%04x seq %d",
 					type2string(hdr->nlmsg_type),
 					hdr->nlmsg_len, hdr->nlmsg_type,
-					hdr->nlmsg_flags, hdr->nlmsg_seq,
-					hdr->nlmsg_pid);
+					hdr->nlmsg_flags, hdr->nlmsg_seq);
 
 		switch (hdr->nlmsg_type) {
 		case NLMSG_NOOP:
@@ -1408,37 +1421,27 @@ static gboolean netlink_event(GIOChannel *chan,
 				GIOCondition cond, gpointer data)
 {
 	unsigned char buf[4096];
-	struct sockaddr_nl nladdr;
-	socklen_t addr_len = sizeof(nladdr);
-	ssize_t status;
-	int fd;
+	gsize len;
+	GIOStatus status;
 
 	if (cond & (G_IO_NVAL | G_IO_HUP | G_IO_ERR))
 		return FALSE;
 
 	memset(buf, 0, sizeof(buf));
-	memset(&nladdr, 0, sizeof(nladdr));
 
-	fd = g_io_channel_unix_get_fd(chan);
+	status = g_io_channel_read_chars(chan, (gchar *) buf,
+						sizeof(buf), &len, NULL);
 
-	status = recvfrom(fd, buf, sizeof(buf), 0,
-                       (struct sockaddr *) &nladdr, &addr_len);
-	if (status < 0) {
-		if (errno == EINTR || errno == EAGAIN)
-			return TRUE;
-
-		return FALSE;
-	}
-
-	if (status == 0)
-		return FALSE;
-
-	if (nladdr.nl_pid != 0) { /* not sent by kernel, ignore */
-		DBG("Received msg from %u, ignoring it", nladdr.nl_pid);
+	switch (status) {
+	case G_IO_STATUS_NORMAL:
+		break;
+	case G_IO_STATUS_AGAIN:
 		return TRUE;
+	default:
+		return FALSE;
 	}
 
-	rtnl_message(buf, status);
+	rtnl_message(buf, len);
 
 	return TRUE;
 }
