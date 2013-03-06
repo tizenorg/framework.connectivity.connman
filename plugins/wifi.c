@@ -56,7 +56,12 @@
 
 #define CLEANUP_TIMEOUT   8	/* in seconds */
 #define INACTIVE_TIMEOUT  12	/* in seconds */
+
+#if defined TIZEN_EXT
+#define MAXIMUM_RETRIES   1
+#else
 #define MAXIMUM_RETRIES   4
+#endif
 
 #define BGSCAN_DEFAULT "simple:30:-45:300"
 #define AUTOSCAN_DEFAULT "exponential:3:300"
