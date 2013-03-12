@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=net.connman
+Exec=/etc/rc.d/init.d/connman
+User=root
