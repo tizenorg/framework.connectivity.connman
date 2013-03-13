@@ -1,0 +1,12 @@
+[Unit]
+Description=Connection service
+After=syslog.target
+
+[Service]
+EnvironmentFile=-/etc/sysconfig/connman
+Type=dbus
+BusName=net.connman
+ExecStart=@prefix@/sbin/connmand -n $OPTIONS
+
+[Install]
+WantedBy=multi-user.target
