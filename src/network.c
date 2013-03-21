@@ -826,7 +826,11 @@ static void dhcp_success(struct connman_network *network)
 	if (err < 0)
 		goto err;
 
+#if defined TIZEN_EXT
+	err = __connman_ipconfig_gateway_add(ipconfig_ipv4, service);
+#else
 	err = __connman_ipconfig_gateway_add(ipconfig_ipv4);
+#endif
 	if (err < 0)
 		goto err;
 
@@ -883,7 +887,11 @@ static int set_connected_fixed(struct connman_network *network)
 	if (err < 0)
 		goto err;
 
+#if defined TIZEN_EXT
+	err = __connman_ipconfig_gateway_add(ipconfig_ipv4, service);
+#else
 	err = __connman_ipconfig_gateway_add(ipconfig_ipv4);
+#endif
 	if (err < 0)
 		goto err;
 
@@ -917,7 +925,11 @@ static void set_connected_manual(struct connman_network *network)
 	if (err < 0)
 		goto err;
 
+#if defined TIZEN_EXT
+	err = __connman_ipconfig_gateway_add(ipconfig, service);
+#else
 	err = __connman_ipconfig_gateway_add(ipconfig);
+#endif
 	if (err < 0)
 		goto err;
 
@@ -972,7 +984,11 @@ static int manual_ipv6_set(struct connman_network *network,
 		return err;
 	}
 
+#if defined TIZEN_EXT
+	err = __connman_ipconfig_gateway_add(ipconfig_ipv6, service);
+#else
 	err = __connman_ipconfig_gateway_add(ipconfig_ipv6);
+#endif
 	if (err < 0)
 		return err;
 
@@ -1034,7 +1050,11 @@ static gboolean dhcpv6_set_addresses(struct connman_network *network)
 	if (err < 0)
 		goto err;
 
+#if defined TIZEN_EXT
+	err = __connman_ipconfig_gateway_add(ipconfig_ipv6, service);
+#else
 	err = __connman_ipconfig_gateway_add(ipconfig_ipv6);
+#endif
 	if (err < 0)
 		goto err;
 
@@ -1628,7 +1648,11 @@ static int manual_ipv4_set(struct connman_network *network,
 		return err;
 	}
 
+#if defined TIZEN_EXT
+	return __connman_ipconfig_gateway_add(ipconfig, service);
+#else
 	return __connman_ipconfig_gateway_add(ipconfig);
+#endif
 }
 
 int __connman_network_clear_ipconfig(struct connman_network *network,

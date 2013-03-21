@@ -498,7 +498,11 @@ static int set_connected(struct connman_provider *provider,
 		}
 
 		__connman_ipconfig_address_add(ipconfig);
+#if defined TIZEN_EXT
+		__connman_ipconfig_gateway_add(ipconfig, service);
+#else
 		__connman_ipconfig_gateway_add(ipconfig);
+#endif
 
 		provider_indicate_state(provider,
 					CONNMAN_SERVICE_STATE_READY);

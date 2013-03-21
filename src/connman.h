@@ -339,7 +339,15 @@ enum connman_ipconfig_method __connman_ipconfig_get_method(
 int __connman_ipconfig_address_add(struct connman_ipconfig *ipconfig);
 int __connman_ipconfig_address_remove(struct connman_ipconfig *ipconfig);
 int __connman_ipconfig_address_unset(struct connman_ipconfig *ipconfig);
+#if defined TIZEN_EXT
+/*
+ * Description: __connman_service_lookup_from_index cannot find correct service
+ *              e.g. same interface or same APN of cellular profile
+ */
+int __connman_ipconfig_gateway_add(struct connman_ipconfig *ipconfig, struct connman_service *service);
+#else
 int __connman_ipconfig_gateway_add(struct connman_ipconfig *ipconfig);
+#endif
 void __connman_ipconfig_gateway_remove(struct connman_ipconfig *ipconfig);
 unsigned char __connman_ipconfig_netmask_prefix_len(const char *netmask);
 
