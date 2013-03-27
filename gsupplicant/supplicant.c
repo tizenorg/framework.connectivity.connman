@@ -762,10 +762,8 @@ unsigned int g_supplicant_interface_get_max_scan_ssids(
 	if (interface == NULL)
 		return 0;
 
-#if !defined TIZEN_EXT
 	if (interface->max_scan_ssids == 0)
 		return WPAS_MAX_SCAN_SSIDS;
-#endif
 
 	return interface->max_scan_ssids;
 }
