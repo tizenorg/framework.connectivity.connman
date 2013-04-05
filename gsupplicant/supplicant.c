@@ -942,17 +942,29 @@ const char *g_supplicant_network_get_enc_mode(GSupplicantNetwork *network)
 	if (network == NULL || network->best_bss == NULL)
 		return NULL;
 
-	if ((network->best_bss->wpa_pairwise & G_SUPPLICANT_PAIRWISE_CCMP) &&
-	    (network->best_bss->wpa_pairwise & G_SUPPLICANT_PAIRWISE_TKIP))
-		return "mixed";
-	else if (network->best_bss->wpa_pairwise & G_SUPPLICANT_PAIRWISE_CCMP)
-		return "aes";
-	else if (network->best_bss->wpa_pairwise & G_SUPPLICANT_PAIRWISE_TKIP)
-		return "tkip";
-	else if (network->best_bss->security == G_SUPPLICANT_SECURITY_WEP)
-		return "wep";
+	if (network->best_bss->security == G_SUPPLICANT_SECURITY_PSK ||
+	    network->best_bss->security == G_SUPPLICANT_SECURITY_IEEE8021X) {
+		unsigned int pairwise;
 
-	return "none";
+		if (network->best_bss->rsn_selected)
+			pairwise = network->best_bss->rsn_pairwise;
+		else
+			pairwise = network->best_bss->wpa_pairwise;
+
+		if ((pairwise & G_SUPPLICANT_PAIRWISE_CCMP) &&
+		    (pairwise & G_SUPPLICANT_PAIRWISE_TKIP))
+			return "mixed";
+		else if (pairwise & G_SUPPLICANT_PAIRWISE_CCMP)
+			return "aes";
+		else if (pairwise & G_SUPPLICANT_PAIRWISE_TKIP)
+			return "tkip";
+
+	} else if (network->best_bss->security == G_SUPPLICANT_SECURITY_WEP)
+		return "wep";
+	else if (network->best_bss->security == G_SUPPLICANT_SECURITY_NONE)
+		return "none";
+
+	return NULL;
 }
 #endif
 
