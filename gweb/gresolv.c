@@ -517,7 +517,7 @@ static gboolean query_timeout(gpointer user_data)
 
 	g_queue_remove(resolv->query_queue, query);
 
-	if (lookup->ipv4_query == NULL && lookup->ipv4_query == NULL)
+	if (lookup->ipv4_query == NULL && lookup->ipv6_query == NULL)
 		sort_and_return_results(lookup);
 
 	destroy_query(query);
