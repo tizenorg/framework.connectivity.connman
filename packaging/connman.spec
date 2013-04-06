@@ -1,5 +1,5 @@
 Name:           connman
-Version:        1.3_13
+Version:        1.3_14
 Release:        1
 License:        GPLv2
 Summary:        Connection Manager
