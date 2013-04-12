@@ -1233,6 +1233,21 @@ static gboolean request_timeout(gpointer user_data)
 {
 	GDHCPClient *dhcp_client = user_data;
 
+#if defined TIZEN_EXT
+	if (dhcp_client->init_reboot == TRUE) {
+		debug(dhcp_client, "DHCPREQUEST of INIT-REBOOT has failed");
+
+		/* Start DHCPDISCOVERY when DHCPREQUEST of INIT-REBOOT has failed */
+		g_dhcp_client_set_address_known(dhcp_client, FALSE);
+
+		dhcp_client->retry_times = 0;
+		dhcp_client->requested_ip = 0;
+
+		g_dhcp_client_start(dhcp_client, dhcp_client->last_address);
+
+		return FALSE;
+	}
+#endif
 	debug(dhcp_client, "request timeout (retries %d)",
 					dhcp_client->retry_times);
 
