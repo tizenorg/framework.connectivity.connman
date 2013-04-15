@@ -1423,8 +1423,11 @@ static void default_changed(void)
 	if (service == current_default)
 		return;
 
+#if defined TIZEN_EXT
+	__connman_service_timeserver_changed(service, NULL);
+#else
 	__connman_service_timeserver_changed(current_default, NULL);
-
+#endif
 	current_default = service;
 
 	__connman_notifier_default_changed(service);
