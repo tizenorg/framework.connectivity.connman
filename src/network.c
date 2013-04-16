@@ -1843,7 +1843,7 @@ int connman_network_set_proxy(struct connman_network *network,
 
 	DBG("network %p proxies %s", network, proxies);
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 	if (service == NULL)
 		return -EINVAL;
 
@@ -1861,7 +1861,7 @@ const char *connman_network_get_ifname(struct connman_network *network)
 	struct connman_ipconfig *ipconfig;
 	const char *ifname = NULL;
 
-	service = __connman_service_lookup_from_network(network);
+	service = connman_service_lookup_from_network(network);
 	if (service == NULL)
 		return NULL;
 

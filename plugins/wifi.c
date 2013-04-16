@@ -1198,6 +1198,9 @@ static int network_disconnect(struct connman_network *network)
 	struct connman_device *device = connman_network_get_device(network);
 	struct wifi_data *wifi;
 	int err;
+#if defined TIZEN_EXT
+	struct connman_service *service;
+#endif
 
 	DBG("network %p", network);
 
@@ -1205,6 +1208,22 @@ static int network_disconnect(struct connman_network *network)
 	if (wifi == NULL || wifi->interface == NULL)
 		return -ENODEV;
 
+#if defined TIZEN_EXT
+	if (connman_network_get_associating(network) == TRUE)
+		connman_network_set_error(network,
+					CONNMAN_NETWORK_ERROR_ASSOCIATE_FAIL);
+	else {
+		service = connman_service_lookup_from_network(network);
+
+		if (service != NULL &&
+			(__connman_service_is_connected_state(service,
+					CONNMAN_IPCONFIG_TYPE_IPV4) == FALSE &&
+			__connman_service_is_connected_state(service,
+					CONNMAN_IPCONFIG_TYPE_IPV6) == FALSE) &&
+			(connman_service_get_favorite(service) == FALSE))
+					__connman_service_set_passphrase(service, NULL);
+	}
+#endif
 	connman_network_set_associating(network, FALSE);
 
 	if (wifi->disconnecting == TRUE)

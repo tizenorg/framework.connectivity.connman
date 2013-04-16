@@ -5366,7 +5366,13 @@ int __connman_service_indicate_error(struct connman_service *service,
 
 	set_error(service, error);
 
+#if defined TIZEN_EXT
+	if (service->favorite == FALSE &&
+			(service->error == CONNMAN_SERVICE_ERROR_INVALID_KEY ||
+			service->error == CONNMAN_SERVICE_ERROR_CONNECT_FAILED))
+#else
 	if (service->error == CONNMAN_SERVICE_ERROR_INVALID_KEY)
+#endif
 		__connman_service_set_passphrase(service, NULL);
 
 	__connman_service_ipconfig_indicate_state(service,

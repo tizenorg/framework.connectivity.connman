@@ -3356,6 +3356,17 @@ static void add_network_security_proto(DBusMessageIter *dict,
 	g_free(proto);
 }
 
+#if defined TIZEN_EXT
+static void add_network_security_none(DBusMessageIter *dict,
+					GSupplicantSSID *ssid)
+{
+	const char *auth_alg = "OPEN";
+
+	supplicant_dbus_dict_append_basic(dict, "auth_alg",
+					DBUS_TYPE_STRING, &auth_alg);
+}
+#endif
+
 static void add_network_security(DBusMessageIter *dict, GSupplicantSSID *ssid)
 {
 	char *key_mgmt;
@@ -3363,6 +3374,12 @@ static void add_network_security(DBusMessageIter *dict, GSupplicantSSID *ssid)
 	switch (ssid->security) {
 	case G_SUPPLICANT_SECURITY_UNKNOWN:
 	case G_SUPPLICANT_SECURITY_NONE:
+#if defined TIZEN_EXT
+		key_mgmt = "NONE";
+		add_network_security_none(dict, ssid);
+		add_network_security_ciphers(dict, ssid);
+		break;
+#endif
 	case G_SUPPLICANT_SECURITY_WEP:
 		key_mgmt = "NONE";
 		add_network_security_wep(dict, ssid);
