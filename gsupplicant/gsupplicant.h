@@ -144,7 +144,11 @@ typedef struct _GSupplicantSSID GSupplicantSSID;
  * The value is only used if wpa_supplicant does not return any max limit
  * for number of scannable SSIDs.
  */
+#if defined TIZEN_EXT
+#define WPAS_MAX_SCAN_SSIDS 1
+#else
 #define WPAS_MAX_SCAN_SSIDS 4
+#endif
 
 struct scan_ssid {
 	unsigned char ssid[32];
