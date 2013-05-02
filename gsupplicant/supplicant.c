@@ -946,10 +946,8 @@ const char *g_supplicant_network_get_enc_mode(GSupplicantNetwork *network)
 	    network->best_bss->security == G_SUPPLICANT_SECURITY_IEEE8021X) {
 		unsigned int pairwise;
 
-		if (network->best_bss->rsn_selected)
-			pairwise = network->best_bss->rsn_pairwise;
-		else
-			pairwise = network->best_bss->wpa_pairwise;
+		pairwise = network->best_bss->rsn_pairwise |
+				network->best_bss->wpa_pairwise;
 
 		if ((pairwise & G_SUPPLICANT_PAIRWISE_CCMP) &&
 		    (pairwise & G_SUPPLICANT_PAIRWISE_TKIP))
