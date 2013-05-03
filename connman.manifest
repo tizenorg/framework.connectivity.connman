@@ -3,7 +3,11 @@
 		<domain name="connman"/>
 		<request>
 			<smack request="system::use_internet" type="w"/>
+			<smack request="dbus" type="rwx"/>
 		</request>
+		<permit>
+			<smack permit="dbus" type="rwx"/>
+		</permit>
 	</define>
 	<assign>
 		<filesystem path="/etc/rc.d/init.d/connman" label="_" exec_label="none"/>
@@ -13,6 +17,7 @@
 		<filesystem path="/usr/lib/systemd/system/connman.service" label="_"/>
 		<filesystem path="/usr/lib/systemd/system/network.target.wants/connman.service" label="_"/>
 		<filesystem path="/usr/share/dbus-1/services/net.connman.service" label="_"/>
+		<filesystem path="/usr/share/license/connman" label="_"/>
 	</assign>
 	<request>
 		<domain name="connman"/>

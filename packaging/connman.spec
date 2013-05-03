@@ -91,6 +91,10 @@ rm %{buildroot}%{_sysconfdir}/dbus-1/system.d/*.conf
 mkdir -p %{buildroot}%{_sysconfdir}/dbus-1/system.d/
 cp src/connman.conf %{buildroot}%{_sysconfdir}/dbus-1/system.d/
 
+#License
+mkdir -p %{buildroot}%{_datadir}/license
+cp COPYING %{buildroot}%{_datadir}/license/connman
+
 %post
 systemctl daemon-reload
 systemctl restart connman.service
@@ -116,6 +120,7 @@ systemctl daemon-reload
 %{_sysconfdir}/rc.d/rc5.d/S61connman
 %{_libdir}/systemd/system/connman.service
 %{_libdir}/systemd/system/network.target.wants/connman.service
+%{_datadir}/license/connman
 
 %files test
 %{_libdir}/%{name}/test/*
