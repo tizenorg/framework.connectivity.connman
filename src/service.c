@@ -1385,6 +1385,11 @@ static connman_bool_t __connman_service_is_internet_profile(
 	DBG("Not Internet profile.");
 	return FALSE;
 }
+
+struct connman_service *connman_service_get_default_connection(void)
+{
+	return __connman_service_get_default();
+}
 #endif
 
 struct connman_service *__connman_service_get_default(void)

@@ -34,6 +34,8 @@
 #include <connman/plugin.h>
 #include <connman/device.h>
 #include <connman/network.h>
+#include <connman/service.h>
+#include <connman/setting.h>
 #include <connman/ipconfig.h>
 #include <connman/dbus.h>
 #include <connman/inet.h>
@@ -1010,6 +1012,7 @@ static gboolean __set_network_ipconfig(struct telephony_network *network,
 					*ipv6_dns1 = NULL, *ipv6_dns2 = NULL;
 	int index;
 	int dns_flag = 0;
+	struct connman_service *service;
 
 	while (dbus_message_iter_get_arg_type(dict) != DBUS_TYPE_INVALID) {
 		DBusMessageIter entry;
@@ -1056,6 +1059,19 @@ static gboolean __set_network_ipconfig(struct telephony_network *network,
 		}
 
 		dbus_message_iter_next(dict);
+	}
+
+	if (connman_setting_get_bool("SingleConnectedTechnology") == TRUE) {
+		service = connman_service_lookup_from_network(network->network);
+
+		/* Wi-Fi technology is always a top priority */
+		if (active == TRUE &&
+				connman_service_is_no_ref_user_pdn_connection(service) == TRUE &&
+				connman_service_get_type(connman_service_get_default_connection())
+					== CONNMAN_SERVICE_TYPE_WIFI) {
+			__request_network_deactivate(network->network);
+			return FALSE;
+		}
 	}
 
 	/* interface index set */

@@ -144,6 +144,8 @@ connman_bool_t connman_service_user_pdn_connection_unref_and_test(
  */
 connman_bool_t connman_service_is_no_ref_user_pdn_connection(
 					struct connman_service *service);
+
+struct connman_service *connman_service_get_default_connection(void);
 #endif
 #ifdef __cplusplus
 }
