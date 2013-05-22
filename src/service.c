@@ -1390,6 +1390,29 @@ struct connman_service *connman_service_get_default_connection(void)
 {
 	return __connman_service_get_default();
 }
+
+static connman_bool_t __connman_service_is_wifi_connected(void)
+{
+	struct connman_service *service;
+	GSequenceIter *iter;
+
+	iter = g_sequence_get_begin_iter(service_list);
+
+	while (g_sequence_iter_is_end(iter) == FALSE) {
+		service = g_sequence_get(iter);
+
+		if (service->type == CONNMAN_SERVICE_TYPE_WIFI &&
+				is_connected(service) == TRUE) {
+			DBG("Wi-Fi is connected");
+			return TRUE;
+		}
+
+		iter = g_sequence_iter_next(iter);
+	}
+
+	DBG("Wi-Fi is not connected");
+	return FALSE;
+}
 #endif
 
 struct connman_service *__connman_service_get_default(void)
@@ -3838,7 +3861,8 @@ static DBusMessage *disconnect_service(DBusConnection *conn,
 			return __connman_error_failed(msg, EISCONN);
 
 		if (is_connected(service) == TRUE &&
-				service == __connman_service_get_default())
+				service == __connman_service_get_default() &&
+				__connman_service_is_wifi_connected() == FALSE)
 			return __connman_error_failed(msg, EISCONN);
 	}
 #endif
