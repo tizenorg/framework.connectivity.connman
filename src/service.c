@@ -5616,6 +5616,13 @@ int __connman_service_ipconfig_indicate_state(struct connman_service *service,
 	if (new_state == CONNMAN_SERVICE_STATE_FAILURE &&
 	    service->type == CONNMAN_SERVICE_TYPE_CELLULAR)
 		service->user_pdn_connection_refcount = 0;
+
+	/* If failing is due to wrong user input and the state is FAILURE,
+	 * then ConnMan doesn't send any reply. */
+	if (new_state == CONNMAN_SERVICE_STATE_FAILURE &&
+	    service->error == CONNMAN_SERVICE_ERROR_INVALID_KEY &&
+	    old_state == new_state)
+		reply_pending(service, ENOKEY);
 #endif
 	/* Any change? */
 	if (old_state == new_state)
