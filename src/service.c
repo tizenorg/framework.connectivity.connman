@@ -4517,6 +4517,15 @@ static gint service_compare(gconstpointer a, gconstpointer b,
 		gboolean b_connected = is_connected(service_b);
 
 		if (a_connected == TRUE && b_connected == TRUE) {
+#if defined TIZEN_EXT
+			/* We prefer wifi on connected state */
+			if (service_a->type != service_b->type) {
+				if (service_a->type == CONNMAN_SERVICE_TYPE_WIFI)
+					return -1;
+				if (service_b->type == CONNMAN_SERVICE_TYPE_WIFI)
+					return 1;
+			}
+#endif
 			/* We prefer online over ready state */
 			if (state_a == CONNMAN_SERVICE_STATE_ONLINE)
 				return -1;
@@ -4557,12 +4566,21 @@ static gint service_compare(gconstpointer a, gconstpointer b,
 		case CONNMAN_SERVICE_TYPE_VPN:
 		case CONNMAN_SERVICE_TYPE_GADGET:
 			break;
+#if defined TIZEN_EXT
+		case CONNMAN_SERVICE_TYPE_WIFI:
+			return -1;
+		case CONNMAN_SERVICE_TYPE_WIMAX:
+		case CONNMAN_SERVICE_TYPE_BLUETOOTH:
+		case CONNMAN_SERVICE_TYPE_CELLULAR:
+			return 1;
+#else
 		case CONNMAN_SERVICE_TYPE_WIFI:
 			return 1;
 		case CONNMAN_SERVICE_TYPE_WIMAX:
 		case CONNMAN_SERVICE_TYPE_BLUETOOTH:
 		case CONNMAN_SERVICE_TYPE_CELLULAR:
 			return -1;
+#endif
 		}
 	}
 
@@ -6465,6 +6483,17 @@ unsigned int __connman_service_get_order(struct connman_service *service)
 		goto done;
 	}
 
+#if defined TIZEN_EXT
+	if (service->type == CONNMAN_SERVICE_TYPE_VPN &&
+			service->do_split_routing == FALSE)
+		service->order = 10;
+	else if (service->type == CONNMAN_SERVICE_TYPE_WIFI)
+		service->order = 2;
+	else if (service->type == CONNMAN_SERVICE_TYPE_CELLULAR)
+		service->order = 0;
+	else
+		service->order = 1;
+#else
 	iter = g_hash_table_lookup(service_hash, service->identifier);
 	if (iter != NULL) {
 		if (g_sequence_iter_get_position(iter) == 0)
@@ -6475,6 +6504,7 @@ unsigned int __connman_service_get_order(struct connman_service *service)
 		else
 			service->order = 0;
 	}
+#endif
 
 	DBG("service %p name %s order %d split %d", service, service->name,
 		service->order, service->do_split_routing);
