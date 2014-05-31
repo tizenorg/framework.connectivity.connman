@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=net.connman
+Exec=/usr/sbin/connman.service
+User=root
