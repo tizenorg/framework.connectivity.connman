@@ -8,6 +8,7 @@ Background
    lowest complexity. Complexity is a function of both task 'complexity'
    and task 'scope'.
 
+
 Core
 ====
 
@@ -16,7 +17,7 @@ Core
    Priority: High
    Complexity: C4
    Owner: Daniel Wagner <daniel.wagner@bmw-carit.de>
-   Owner: Samuel Ortiz <sameo@linux.intel.com>
+   Owner: Patrik Flykt <patrik.flykt@linux.intel.com>
 
    The session API should provide a connection abstraction in order to
    prioritize applications network accesses, prevent or allow network
@@ -24,37 +25,6 @@ Core
    for periodic network connections. On-demand connections will be
    implemented through this API as well.
    See http://www.mail-archive.com/connman@connman.net/msg01653.html
-
-
-- DNS caching
-
-   Priority: Low
-   Complexity: C4
-
-   A simple initial implementation would see ConnMan's dnsproxy
-   caching the DNS record based on their TTL.
-
-
-- Power management
-
-   Priority: Medium
-   Complexity: C4
-   Owner: Samuel Ortiz <sameo@linux.intel.com>
-
-   Implement a simple device pm hook that ConnMan's core code would
-   use whenever it decides to put devices in power save mode. Although
-   the kernel runtime power management code should take care of that,
-   not all driver (especially WiFi ones) implement runtime PM hooks.
-
-
-- IP ranges allocation and check
-
-   Priority: High
-   Complexity: C2
-
-   For both tethering and private networks, but also to detect invalid
-   static IP configurations, we need to have a core IP range layer
-   that manages all currently used IP blocks.
 
 
 - Personal firewall
@@ -76,23 +46,18 @@ Core
    security integration.
 
 
+- Favorite service migration removal
+
+  Priority: Medium
+  Complexity: C1
+  When: 12/2012
+
+  Remove service migration code that moves services from default.profile
+  to the current directory-based structure.
+
 
 WiFi
 ====
-
-- Ad-Hoc support
-
-   Priority: Medium
-   Complexity: C2
-   Owner: Samuel Ortiz <sameo@linux.intel.com>
-
-
-- Fast Connect
-
-   Priority: Low
-   Complexity: C4
-   Owner: Samuel Ortiz <sameo@linux.intel.com>
-
 
 - EAP-AKA/SIM
 
@@ -118,16 +83,16 @@ WiFi
    Complexity: C2
 
 
+- Previous WPS pin code sending
+
+  Priority: Medium
+  Complexity: C2
+
+  Provide previous WPS pin code in PreviousPassphrase field if WPS was used.
+
 
 Bluetooth
 =========
-
-- DUN client
-
-   Priority: Low
-   Complexity: C4
-   Owner: Mario Tokarz <mario.tokarz@bmw-carit.de>
-
 
 
 Cellular
@@ -139,18 +104,32 @@ VPN
 
 - IPsec
 
+   Priority: Medium
+   Complexity: C4
+   Owner: Jukka Rissanen <jukka.rissanen@linux.intel.com>
+
+
+Tools
+=====
+
+- Command line tool
+
    Priority: Low
    Complexity: C4
+   Owner: Patrik Flykt <patrik.flykt@linux.intel.com>
+
+   For platforms not running python, it could prove useful to provide them
+   with a native single binary command line tool.
 
 
-- Split tunnelling
+User Interface
+==============
+
+- GNOME3 UI
 
    Priority: Low
-   Complexity: C8
-   Dependencies: Core:Private networks
+   Complexity: C4
+   Owner: Alok Barsode <alok.barsode@linux.intel.com>
 
-   The current VPN support puts the VPN interface at the top of the
-   service list, giving VPNs the default route. When doing split
-   tunneling, the system routes packet to the VPN interface for
-   private IPs, while going through the default interface for the rest
-   of the traffic.
+   A GNOME3 shell user interface would make it easier for mainstream distros
+   users to use ConnMan.

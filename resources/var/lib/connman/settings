@@ -6,13 +6,10 @@ OfflineMode=false
 Enable=false
 
 [Bluetooth]
-Enable=false
+Enable=true
 
 [Wired]
 Enable=true
 
-[3G]
+[Cellular]
 Enable=true
-
-[WiMAX]
-Enable=false

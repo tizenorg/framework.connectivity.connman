@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -150,7 +150,7 @@ int main(int argc, char *argv[])
 
 	timer = g_timer_new();
 
-	if (g_web_request_get(web, argv[1], web_result, NULL) == 0) {
+	if (g_web_request_get(web, argv[1], web_result, NULL,  NULL) == 0) {
 		fprintf(stderr, "Failed to start request\n");
 		return 1;
 	}

@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -38,7 +38,6 @@ enum rfkill_type {
 	RFKILL_TYPE_WLAN,
 	RFKILL_TYPE_BLUETOOTH,
 	RFKILL_TYPE_UWB,
-	RFKILL_TYPE_WIMAX,
 	RFKILL_TYPE_WWAN,
 	RFKILL_TYPE_GPS,
 	RFKILL_TYPE_FM,
@@ -67,8 +66,6 @@ static enum connman_service_type convert_type(uint8_t type)
 		return CONNMAN_SERVICE_TYPE_WIFI;
 	case RFKILL_TYPE_BLUETOOTH:
 		return CONNMAN_SERVICE_TYPE_BLUETOOTH;
-	case RFKILL_TYPE_WIMAX:
-		return CONNMAN_SERVICE_TYPE_WIMAX;
 	case RFKILL_TYPE_WWAN:
 		return CONNMAN_SERVICE_TYPE_CELLULAR;
 	}
@@ -76,6 +73,7 @@ static enum connman_service_type convert_type(uint8_t type)
 	return CONNMAN_SERVICE_TYPE_UNKNOWN;
 }
 
+#if !defined TIZEN_EXT
 static enum rfkill_type convert_service_type(enum connman_service_type type)
 {
 	switch (type) {
@@ -83,8 +81,6 @@ static enum rfkill_type convert_service_type(enum connman_service_type type)
 		return RFKILL_TYPE_WLAN;
 	case CONNMAN_SERVICE_TYPE_BLUETOOTH:
 		return RFKILL_TYPE_BLUETOOTH;
-	case CONNMAN_SERVICE_TYPE_WIMAX:
-		return RFKILL_TYPE_WIMAX;
 	case CONNMAN_SERVICE_TYPE_CELLULAR:
 		return RFKILL_TYPE_WWAN;
 	case CONNMAN_SERVICE_TYPE_GPS:
@@ -99,6 +95,7 @@ static enum rfkill_type convert_service_type(enum connman_service_type type)
 
 	return NUM_RFKILL_TYPES;
 }
+#endif
 
 static GIOStatus rfkill_process(GIOChannel *chan)
 {
@@ -162,19 +159,21 @@ static GIOChannel *channel = NULL;
 
 int __connman_rfkill_block(enum connman_service_type type, connman_bool_t block)
 {
+#if !defined TIZEN_EXT
 	uint8_t rfkill_type;
 	struct rfkill_event event;
 	ssize_t len;
-	int fd;
+	int fd, err;
+#endif
 
 	DBG("type %d block %d", type, block);
 
-	rfkill_type = convert_service_type(type);
 #if defined TIZEN_EXT
-	DBG("try to set rfkill block %d and type %d, but it's not permitted",
-					block, rfkill_type);
+	DBG("try to set rfkill block %d, but it's not permitted", block);
+
 	return 0;
-#endif
+#else
+	rfkill_type = convert_service_type(type);
 	if (rfkill_type == NUM_RFKILL_TYPES)
 		return -EINVAL;
 
@@ -188,12 +187,16 @@ int __connman_rfkill_block(enum connman_service_type type, connman_bool_t block)
 	event.soft = block;
 
 	len = write(fd, &event, sizeof(event));
-	if (len < 0)
+	if (len < 0) {
 		connman_error("Failed to change RFKILL state");
+		err = len;
+	} else
+		err = 0;
 
 	close(fd);
 
-	return 0;
+	return err;
+#endif
 }
 
 int __connman_rfkill_init(void)

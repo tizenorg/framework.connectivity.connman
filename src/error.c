@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -58,10 +58,12 @@ DBusMessage *__connman_error_failed(DBusMessage *msg, int errnum)
 	case EISCONN:
 		return __connman_error_already_connected(msg);
 	case ENOTCONN:
+	case ECONNREFUSED:
 		return __connman_error_not_connected(msg);
 	case ETIMEDOUT:
 		return __connman_error_operation_timeout(msg);
 	case EALREADY:
+	case EINPROGRESS:
 		return __connman_error_in_progress(msg);
 	case ENOKEY:
 		return __connman_error_passphrase_required(msg);

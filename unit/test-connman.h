@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -71,6 +71,18 @@ void util_session_cleanup(struct test_session *session);
 
 typedef void (* notify_cb) (struct test_session *session);
 
+enum connman_session_state {
+	CONNMAN_SESSION_STATE_DISCONNECTED   = 0,
+	CONNMAN_SESSION_STATE_CONNECTED      = 1,
+	CONNMAN_SESSION_STATE_ONLINE         = 2,
+};
+
+enum connman_session_type {
+	CONNMAN_SESSION_TYPE_ANY      = 0,
+	CONNMAN_SESSION_TYPE_LOCAL    = 1,
+	CONNMAN_SESSION_TYPE_INTERNET = 2,
+};
+
 enum connman_session_roaming_policy {
 	CONNMAN_SESSION_ROAMING_POLICY_UNKNOWN		= 0,
 	CONNMAN_SESSION_ROAMING_POLICY_DEFAULT		= 1,
@@ -82,7 +94,8 @@ enum connman_session_roaming_policy {
 
 struct test_session_info {
 	char *bearer;
-	connman_bool_t online;
+	enum connman_session_state state;
+	enum connman_session_type type;
 	char *name;
 	/* ipv4, ipv6 dicts */
 	GSList *allowed_bearers;

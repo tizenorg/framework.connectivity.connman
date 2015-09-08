@@ -26,6 +26,7 @@
 
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -48,148 +49,15 @@ static int tunnel_pending;
 static char *tunnel_ip_address;
 static GWeb *web;
 static guint web_request_id;
+static unsigned int newlink_watch;
+static unsigned int newlink_flags;
+static int newlink_timeout_id;
 
 #define STATUS_URL "http://ipv6.connman.net/online/status.html"
-
-#define NLMSG_TAIL(nmsg) \
-	((struct rtattr *) (((void *)(nmsg)) + NLMSG_ALIGN((nmsg)->nlmsg_len)))
 
 #ifndef IP_DF
 #define IP_DF		0x4000		/* Flag: "Don't Fragment"	*/
 #endif
-
-struct rtnl_handle {
-	int			fd;
-	struct sockaddr_nl	local;
-	struct sockaddr_nl	peer;
-	__u32			seq;
-	__u32			dump;
-};
-
-static int addattr32(struct nlmsghdr *n, int maxlen, int type, __u32 data)
-{
-	int len = RTA_LENGTH(4);
-	struct rtattr *rta;
-	if (NLMSG_ALIGN(n->nlmsg_len) + len > (unsigned int)maxlen) {
-		DBG("Error! max allowed bound %d exceeded", maxlen);
-		return -1;
-	}
-	rta = NLMSG_TAIL(n);
-	rta->rta_type = type;
-	rta->rta_len = len;
-	memcpy(RTA_DATA(rta), &data, 4);
-	n->nlmsg_len = NLMSG_ALIGN(n->nlmsg_len) + len;
-
-	return 0;
-}
-
-static int addattr_l(struct nlmsghdr *n, int maxlen, int type,
-			const void *data, int alen)
-{
-	int len = RTA_LENGTH(alen);
-	struct rtattr *rta;
-
-	if (NLMSG_ALIGN(n->nlmsg_len) + RTA_ALIGN(len) >
-					(unsigned int)maxlen) {
-		DBG("addattr_l message exceeded bound of %d", maxlen);
-		return -1;
-	}
-	rta = NLMSG_TAIL(n);
-	rta->rta_type = type;
-	rta->rta_len = len;
-	memcpy(RTA_DATA(rta), data, alen);
-	n->nlmsg_len = NLMSG_ALIGN(n->nlmsg_len) + RTA_ALIGN(len);
-
-	return 0;
-}
-
-static void rtnl_close(struct rtnl_handle *rth)
-{
-	if (rth->fd >= 0) {
-		close(rth->fd);
-		rth->fd = -1;
-	}
-}
-
-static int rtnl_open(struct rtnl_handle *rth)
-{
-	socklen_t addr_len;
-	int sndbuf = 1024;
-
-	memset(rth, 0, sizeof(*rth));
-
-	rth->fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
-	if (rth->fd < 0) {
-		connman_error("Can not open netlink socket: %s",
-						strerror(errno));
-		return -1;
-	}
-
-	if (setsockopt(rth->fd, SOL_SOCKET, SO_SNDBUF, &sndbuf,
-			sizeof(sndbuf)) < 0) {
-		connman_error("SO_SNDBUF: %s", strerror(errno));
-		return -1;
-	}
-
-	memset(&rth->local, 0, sizeof(rth->local));
-	rth->local.nl_family = AF_NETLINK;
-	rth->local.nl_groups = 0;
-
-	if (bind(rth->fd, (struct sockaddr *)&rth->local,
-			sizeof(rth->local)) < 0) {
-		connman_error("Can not bind netlink socket: %s",
-							strerror(errno));
-		return -1;
-	}
-	addr_len = sizeof(rth->local);
-	if (getsockname(rth->fd, (struct sockaddr *)&rth->local,
-				&addr_len) < 0) {
-		connman_error("Can not getsockname: %s", strerror(errno));
-		return -1;
-	}
-	if (addr_len != sizeof(rth->local)) {
-		connman_error("Wrong address length %d", addr_len);
-		return -1;
-	}
-	if (rth->local.nl_family != AF_NETLINK) {
-		connman_error("Wrong address family %d", rth->local.nl_family);
-		return -1;
-	}
-	rth->seq = time(NULL);
-
-	return 0;
-}
-
-static int rtnl_talk(struct rtnl_handle *rtnl, struct nlmsghdr *n)
-{
-	struct sockaddr_nl nladdr;
-	struct iovec iov = {
-		.iov_base = (void *)n,
-		.iov_len = n->nlmsg_len
-	};
-	struct msghdr msg = {
-		.msg_name = &nladdr,
-		.msg_namelen = sizeof(nladdr),
-		.msg_iov = &iov,
-		.msg_iovlen = 1,
-	};
-	unsigned seq;
-	int err;
-
-	memset(&nladdr, 0, sizeof(nladdr));
-	nladdr.nl_family = AF_NETLINK;
-
-	n->nlmsg_seq = seq = ++rtnl->seq;
-	n->nlmsg_flags |= NLM_F_ACK;
-
-	err = sendmsg(rtnl->fd, &msg, 0);
-	if (err < 0) {
-		connman_error("Can not talk to rtnetlink");
-		return err;
-	}
-
-	return 0;
-}
 
 static int tunnel_create(struct in_addr *addr)
 {
@@ -209,21 +77,23 @@ static int tunnel_create(struct in_addr *addr)
 	p.iph.protocol = IPPROTO_IPV6;
 	p.iph.saddr = addr->s_addr;
 	p.iph.ttl = 64;
-	strncpy(p.name, "tun6to4", IFNAMSIZ);
+	strncpy(p.name, "tun6to4", sizeof(p.name) - 1);
 
-	strncpy(ifr.ifr_name, "sit0", IFNAMSIZ);
+	strncpy(ifr.ifr_name, "sit0", sizeof(ifr.ifr_name) - 1);
 	ifr.ifr_ifru.ifru_data = (void *)&p;
 	fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+	if (fd < 0)
+		return -errno;
 	ret = ioctl(fd, SIOCADDTUNNEL, &ifr);
 	if (ret)
 		connman_error("add tunnel %s failed: %s", ifr.ifr_name,
 							strerror(errno));
 	close(fd);
 
-	return ret;
+	return -ret;
 }
 
-static void tunnel_destroy()
+static void tunnel_destroy(void)
 {
 	struct ip_tunnel_parm p;
 	struct ifreq ifr;
@@ -241,9 +111,9 @@ static void tunnel_destroy()
 	p.iph.version = 4;
 	p.iph.ihl = 5;
 	p.iph.protocol = IPPROTO_IPV6;
-	strncpy(p.name, "tun6to4", IFNAMSIZ);
+	strncpy(p.name, "tun6to4", sizeof(p.name) - 1);
 
-	strncpy(ifr.ifr_name, "tun6to4", IFNAMSIZ);
+	strncpy(ifr.ifr_name, "tun6to4", sizeof(ifr.ifr_name) - 1);
 	ifr.ifr_ifru.ifru_data = (void *)&p;
 	fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
 	if (fd < 0) {
@@ -265,18 +135,12 @@ static void tunnel_destroy()
 	tunnel_ip_address = NULL;
 }
 
-static int tunnel_add_route()
+static int tunnel_add_route(void)
 {
-	struct rtnl_handle rth;
+	struct __connman_inet_rtnl_handle rth;
 	struct in6_addr addr6;
 	int index;
 	int ret = 0;
-
-	struct {
-		struct nlmsghdr n;
-		struct rtmsg 	r;
-		char   		buf[1024];
-	} req;
 
 	/* ip -6 route add ::/0 via ::192.88.99.1 dev tun6to4 metric 1 */
 
@@ -286,60 +150,57 @@ static int tunnel_add_route()
 		return -1;
 	}
 
-	memset(&req, 0, sizeof(req));
+	memset(&rth, 0, sizeof(rth));
 
-	req.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct rtmsg));
-	req.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_EXCL;
-	req.n.nlmsg_type = RTM_NEWROUTE;
-	req.r.rtm_family = AF_INET6;
-	req.r.rtm_table = RT_TABLE_MAIN;
-	req.r.rtm_protocol = RTPROT_BOOT;
-	req.r.rtm_scope = RT_SCOPE_UNIVERSE;
-	req.r.rtm_type = RTN_UNICAST;
-	req.r.rtm_dst_len = 0;
+	rth.req.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct rtmsg));
+	rth.req.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_EXCL;
+	rth.req.n.nlmsg_type = RTM_NEWROUTE;
+	rth.req.u.r.rt.rtm_family = AF_INET6;
+	rth.req.u.r.rt.rtm_table = RT_TABLE_MAIN;
+	rth.req.u.r.rt.rtm_protocol = RTPROT_BOOT;
+	rth.req.u.r.rt.rtm_scope = RT_SCOPE_UNIVERSE;
+	rth.req.u.r.rt.rtm_type = RTN_UNICAST;
+	rth.req.u.r.rt.rtm_dst_len = 0;
 
 	inet_pton(AF_INET6, "::192.88.99.1", &addr6);
 
-	addattr_l(&req.n, sizeof(req), RTA_GATEWAY, &addr6.s6_addr, 16);
-	addattr32(&req.n, sizeof(req), RTA_OIF, index);
-	addattr32(&req.n, sizeof(req), RTA_PRIORITY, 1);
+	__connman_inet_rtnl_addattr_l(&rth.req.n, sizeof(rth.req), RTA_GATEWAY,
+					&addr6.s6_addr, 16);
+	__connman_inet_rtnl_addattr32(&rth.req.n, sizeof(rth.req), RTA_OIF,
+					index);
+	__connman_inet_rtnl_addattr32(&rth.req.n, sizeof(rth.req),
+					RTA_PRIORITY, 1);
 
-	ret = rtnl_open(&rth);
+	ret = __connman_inet_rtnl_open(&rth);
 	if (ret < 0)
 		goto done;
 
-	ret = rtnl_talk(&rth, &req.n);
+	ret = __connman_inet_rtnl_send(&rth, &rth.req.n);
 
 done:
-	rtnl_close(&rth);
+	__connman_inet_rtnl_close(&rth);
 	return ret;
 }
 
 static int tunnel_set_addr(unsigned int a, unsigned int b,
 			unsigned int c, unsigned int d)
 {
-	struct rtnl_handle rth;
+	struct __connman_inet_rtnl_handle rth;
 	struct in6_addr addr6;
 	char *ip6addr;
 	int ret;
 
-	struct {
-		struct nlmsghdr n;
-		struct ifaddrmsg ifa;
-		char buf[256];
-	} req;
-
 	/* ip -6 addr add dev tun6to4 2002:0102:0304::1/64 */
 
-	memset(&req, 0, sizeof(req));
+	memset(&rth, 0, sizeof(rth));
 
-	req.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct ifaddrmsg));
-	req.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_EXCL;
-	req.n.nlmsg_type = RTM_NEWADDR;
-	req.ifa.ifa_family = AF_INET6;
-	req.ifa.ifa_prefixlen = 64;
-	req.ifa.ifa_index = if_nametoindex("tun6to4");
-	if (req.ifa.ifa_index == 0) {
+	rth.req.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct ifaddrmsg));
+	rth.req.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_EXCL;
+	rth.req.n.nlmsg_type = RTM_NEWADDR;
+	rth.req.u.i.ifa.ifa_family = AF_INET6;
+	rth.req.u.i.ifa.ifa_prefixlen = 64;
+	rth.req.u.i.ifa.ifa_index = if_nametoindex("tun6to4");
+	if (rth.req.u.i.ifa.ifa_index == 0) {
 		connman_error("Can not find device tun6to4");
 		ret = -1;
 		goto done;
@@ -350,17 +211,19 @@ static int tunnel_set_addr(unsigned int a, unsigned int b,
 	DBG("ipv6 address %s", ip6addr);
 	g_free(ip6addr);
 
-	addattr_l(&req.n, sizeof(req), IFA_LOCAL, &addr6.s6_addr, 16);
-	addattr_l(&req.n, sizeof(req), IFA_ADDRESS, &addr6.s6_addr, 16);
+	__connman_inet_rtnl_addattr_l(&rth.req.n, sizeof(rth.req), IFA_LOCAL,
+					&addr6.s6_addr, 16);
+	__connman_inet_rtnl_addattr_l(&rth.req.n, sizeof(rth.req), IFA_ADDRESS,
+					&addr6.s6_addr, 16);
 
-	ret = rtnl_open(&rth);
+	ret = __connman_inet_rtnl_open(&rth);
 	if (ret < 0)
 		goto done;
 
-	ret = rtnl_talk(&rth, &req.n);
+	ret = __connman_inet_rtnl_send(&rth, &rth.req.n);
 
 done:
-	rtnl_close(&rth);
+	__connman_inet_rtnl_close(&rth);
 	return ret;
 }
 
@@ -391,6 +254,76 @@ static gboolean web_result(GWebResult *result, gpointer user_data)
 	g_timeout_add_seconds(1, unref_web, NULL);
 
 	return FALSE;
+}
+
+static void web_debug(const char *str, void *data)
+{
+	connman_info("%s: %s\n", (const char *) data, str);
+}
+
+static gboolean newlink_timeout(gpointer user_data)
+{
+	/*
+	 * Stop if the timeout has been cancelled already by tun_newlink()
+	 */
+	if (newlink_timeout_id == 0)
+		return FALSE;
+
+	DBG("");
+
+	if (newlink_watch != 0) {
+		connman_rtnl_remove_watch(newlink_watch);
+		newlink_watch = 0;
+	}
+
+	newlink_flags = 0;
+
+	if (web_request_id == 0)
+		tunnel_destroy();
+
+	newlink_timeout_id = 0;
+
+	return FALSE;
+}
+
+static void tun_newlink(unsigned flags, unsigned change, void *user_data)
+{
+	int index = GPOINTER_TO_INT(user_data);
+
+	if ((newlink_flags & IFF_UP) == (flags & IFF_UP)) {
+		newlink_flags = flags;
+		return;
+	}
+
+	if (flags & IFF_UP) {
+		/*
+		 * We try to verify that connectivity through tunnel works ok.
+		 */
+		if (newlink_timeout_id > 0) {
+			g_source_remove(newlink_timeout_id);
+			newlink_timeout_id = 0;
+		}
+
+		web = g_web_new(index);
+		if (web == NULL) {
+			tunnel_destroy();
+			return;
+		}
+
+		g_web_set_accept(web, NULL);
+		g_web_set_user_agent(web, "ConnMan/%s", VERSION);
+		g_web_set_close_connection(web, TRUE);
+
+		if (getenv("CONNMAN_WEB_DEBUG"))
+			g_web_set_debug(web, web_debug, "6to4");
+
+		web_request_id = g_web_request_get(web, STATUS_URL,
+				web_result, NULL,  NULL);
+
+		newlink_timeout(NULL);
+	}
+
+	newlink_flags = flags;
 }
 
 static int init_6to4(struct in_addr *ip4addr)
@@ -430,17 +363,10 @@ static int init_6to4(struct in_addr *ip4addr)
 	if (if_index < 0)
 		goto error;
 
-	/* We try to verify that connectivity through tunnel works ok.
-	 */
-	web = g_web_new(if_index);
-	if (web == NULL)
-		goto error;
+	newlink_watch = connman_rtnl_add_newlink_watch(if_index,
+				tun_newlink, GINT_TO_POINTER(if_index));
 
-	g_web_set_accept(web, NULL);
-	g_web_set_user_agent(web, "ConnMan/%s", VERSION);
-	g_web_set_close_connection(web, TRUE);
-
-	web_request_id = g_web_request_get(web, STATUS_URL, web_result, NULL);
+	newlink_timeout_id = g_timeout_add_seconds(1, newlink_timeout, NULL);
 
 	return 0;
 
@@ -449,12 +375,13 @@ error:
 	return -1;
 }
 
-static void receive_rs_reply(struct nd_router_advert *reply, void *user_data)
+static void receive_rs_reply(struct nd_router_advert *reply,
+			unsigned int length, void *user_data)
 {
 	char *address = user_data;
 	struct in_addr ip4addr;
 
-	DBG("reply %p address %s", reply, address);
+	DBG("reply %p len %d address %s", reply, length, address);
 
 	/* We try to create tunnel if autoconfiguration did not work i.e.,
 	 * we did not receive any reply to router solicitation message.
@@ -513,7 +440,7 @@ int __connman_6to4_probe(struct connman_service *service)
 					(a == 172 && (b >= 16 && b <= 31)))
 		return -1;
 
-	index = connman_ipconfig_get_index(ip4config);
+	index = __connman_ipconfig_get_index(ip4config);
 	ip_address = g_strdup(address);
 	tunnel_pending = 1;
 

@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -42,6 +42,9 @@ int connman_inet_ifup(int index);
 int connman_inet_ifdown(int index);
 
 struct connman_device *connman_inet_create_device(int index);
+#if defined TIZEN_EXT
+void connman_inet_update_device_ident(struct connman_device *device);
+#endif
 connman_bool_t connman_inet_is_cfg80211(int index);
 
 int connman_inet_set_address(int index, struct connman_ipaddress *ipaddress);
@@ -78,6 +81,11 @@ int connman_inet_remove_from_bridge(int index, const char *bridge);
 int connman_inet_set_mtu(int index, int mtu);
 int connman_inet_setup_tunnel(char *tunnel, int mtu);
 int connman_inet_create_tunnel(char **iface);
+int connman_inet_get_dest_addr(int index, char **dest);
+int connman_inet_ipv6_get_dest_addr(int index, char **dest);
+int connman_inet_check_ipaddress(const char *host);
+connman_bool_t connman_inet_check_hostname(const char *ptr, size_t len);
+connman_bool_t connman_inet_is_ipv6_supported();
 
 #ifdef __cplusplus
 }

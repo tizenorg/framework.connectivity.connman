@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -56,7 +56,7 @@ static void remove_counter(gpointer user_data)
 	g_free(counter);
 }
 
-static void owner_disconnect(DBusConnection *connection, void *user_data)
+static void owner_disconnect(DBusConnection *conn, void *user_data)
 {
 	struct connman_counter *counter = user_data;
 

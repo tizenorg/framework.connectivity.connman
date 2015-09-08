@@ -1,16 +1,113 @@
-ver 0.78.4
-	Apply BMC fix 24943
+ver 1.3:
+	Fix issue with default configuration values.
+	Fix issue with timeserver canonical name entries.
+	Fix issue with crash from cellular dummy context.
+	Fix issue with incorrect index for private networks.
 
-ver 0.78.3:
-	Update ofono plugin.
-	Apply BMC fixes 24592, 23741, 23740, 24549, 24702, 24651, 24737,
-	24712, 24942, 24965 and 25026.
+ver 1.2:
+	Fix issue with not handling WiFi security changes.
+	Fix issue with not stopping WiFi scanning on shutdown.
+	Fix issue with auto-scanning and network discovery.
+	Fix issue with D-Bus reply for hidden WiFi networks.
+	Fix issue with overlapping memory areas and DNS requests.
+	Add support for randomized DNS transaction identifiers.
+	Add support for DNS caching over TCP connections.
+	Add support for using default IPv6 privacy setting.
+	Add support for providing previous passphrase to agent.
+	Add support for configuration unprovisioning handling.
+	Add support for NetworkInterfaceBlacklist configuration.
+	Add support for Bluetooth DUN daemon (dundee).
 
-ver 0.78.2:
-	Backport ofono with CDMA support
+ver 1.1:
+	Fix issue with missing message type and DHCPv4 support.
+	Fix issue with potential NULL pointer in DHCPv6 handling.
+	Fix issue with potential NULL pointer in VPN handling.
+	Fix issue with potential NULL pointer for WiFi SSID.
+	Fix issue with missing conversion of raw WiFi PSK input.
+	Fix issue with missing stop for WiFi auto-scanning handling.
+	Fix issue with uninitialized IPv6 prefix length in oFono plugin.
+	Fix issue with domain search list handling according to RFC 6106.
+	Fix issue with domain name list notifications.
+	Fix issue with nameserver list notifications.
+	Fix issue with incorrect fixed IP configuration.
+	Fix issue with incorrect cleanup of resolver timers.
+	Fix issue with handling of RDNSS lifetime expiration.
+	Fix issue with crash on wrong domain length information.
+	Add support for favorite service database migration.
+	Add support for disabling WISPr functionality.
+	Add support for configurable agent timeouts.
 
-ver 0.78.1:
-	Rebased for connman-stable
+ver 1.0:
+	Fix issue with missing WiFi disconnecting flag.
+	Fix issue with missing GPRS context attached check.
+	Fix issue with potential crash and supplicant handling.
+	Fix issue with potential crash and VPN provider.
+	Fix issue with potential crash and host routes.
+
+ver 0.85:
+	Fix issue with duplicate service timeservers.
+	Fix issue with failure state when aborting agent request.
+	Fix issue with automatic scanning for hidden WiFi networks.
+	Fix issue with missing hostname/domainname validity checks.
+	Fix issue with missing DHCP packet length checks.
+	Add support for browser launching from WISPr login.
+
+ver 0.84:
+	Fix issue with handling changed WiFi security of access points.
+	Fix issue with state notification of NetworkManager compatibility.
+
+ver 0.83:
+	Fix issue with Ethernet not being enabled by default.
+	Fix issue with missing host routes for WISPr request.
+	Fix issue with missing HTTPS handling for WISPr support.
+	Fix issue with agent asking for passphrase for open service.
+	Fix issue with endless online check for preferred technology.
+	Fix issue with IPv6 RDNSS and DNS server creation.
+	Fix issue with WiFi roaming state change handling.
+	Fix issue with broken handling of WPS PBC method.
+
+ver 0.82:
+	Fix issue with global online state handling.
+	Fix issue with timeserver handling in case of VPN.
+	Fix issue with automatic WiFi scanning handling.
+	Fix issue with WPS PIN length of zero and PBC.
+
+ver 0.81:
+	Update default configuration options.
+	Add support for WPS PBC advertising handling.
+	Add support for wpa_supplicant background scanning.
+	Fix issue with showing cellular services without APN.
+	Fix issue with missing timeservers changed signal.
+
+ver 0.80:
+	Update to support additional D-Bus API changes.
+	Add support for preferred technologies switching.
+	Add support for default auto connect technologies option.
+	Add support for service specific timeserver configuration.
+	Add support for extended timeserver fallback functionality.
+	Add support for extended nameserver fallback functionality.
+	Add support for user supplied routes for providers.
+	Add support for checking WiFi passphrase validity.
+	Fix issue with WISPr support and proxy handling.
+	Fix issue with Ethernet and auto connect handling.
+	Fix issue with too early IPv6 auto connection.
+	Fix issue with too early 6to4 connection checks.
+	Fix issue with oFono interaction on disconnect.
+	Fix issue with DNS servers behind point-to-point links.
+	Fix issue with pending DNS proxy requests.
+	Fix multiple issues with VPN handling.
+	Fix multiple issues with default gateway handling.
+
+ver 0.79:
+	Update to support changed D-Bus API.
+	Add support for WiFi background scanning.
+	Add support for showing hidden WiFi networks as services.
+	Add support for generic stateless DHCPv6 handling.
+	Add support for DHCPv4 client identifier handling.
+	Add support for generic IP address pool handling.
+	Add support for global DNS cache handling.
+	Add support for internal NTP time handling.
+	Add support for updated oFono handling.
 
 ver 0.78:
 	Fix multiple issues with service connection states.

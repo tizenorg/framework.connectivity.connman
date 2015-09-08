@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2011  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2012  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -22,11 +22,18 @@
 #ifndef __CONNMAN_SETTING_H
 #define __CONNMAN_SETTING_H
 
+#include <connman/types.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 connman_bool_t connman_setting_get_bool(const char *key);
+char **connman_setting_get_string_list(const char *key);
+unsigned int *connman_setting_get_uint_list(const char *key);
+
+unsigned int connman_timeout_input_request(void);
+unsigned int connman_timeout_browser_launch(void);
 
 #ifdef __cplusplus
 }

@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -147,12 +147,15 @@ int __connman_wpad_start(struct connman_service *service)
 		return -EINVAL;
 
 	wpad = g_try_new0(struct connman_wpad, 1);
-	if (wpad == NULL)
+	if (wpad == NULL) {
+		g_strfreev(nameservers);
 		return -ENOMEM;
+	}
 
 	wpad->service = service;
 	wpad->resolv = g_resolv_new(index);
 	if (wpad->resolv == NULL) {
+		g_strfreev(nameservers);
 		g_free(wpad);
 		return -ENOMEM;
 	}
@@ -162,6 +165,8 @@ int __connman_wpad_start(struct connman_service *service)
 
 	for (i = 0; nameservers[i] != NULL; i++)
 		g_resolv_add_nameserver(wpad->resolv, nameservers[i], 53, 0);
+
+	g_strfreev(nameservers);
 
 	wpad->hostname = g_strdup_printf("wpad.%s", domainname);
 

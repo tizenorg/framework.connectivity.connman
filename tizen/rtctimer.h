@@ -1,8 +1,8 @@
 /*
  *
- *  Connection Manager
+ *  Tizen RTC (hardware-based) timer library
  *
- *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2012-2013  Danny Jeongseok Seo <S.Seo@samsung.com>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -19,25 +19,21 @@
  *
  */
 
-#ifdef HAVE_CONFIG_H
-#include <config.h>
+#ifndef __RTCTIMER_H
+#define __RTCTIMER_H
+
+#include <glib.h>
+
+#ifdef __cplusplus
+extern "C" {
 #endif
 
-#define CONNMAN_API_SUBJECT_TO_CHANGE
-#include <connman/timeserver.h>
-#include <connman/plugin.h>
+int rtc_timeout_add_seconds(guint interval, GSourceFunc function,
+							gpointer data, GDestroyNotify notify);
+gboolean rtc_timeout_remove(int timer);
 
-#define MEEGO_NTP_SERVER "ntp.meego.com"
-
-static int meego_init(void)
-{
-	return connman_timeserver_append(MEEGO_NTP_SERVER);
+#ifdef __cplusplus
 }
+#endif
 
-static void meego_exit(void)
-{
-	connman_timeserver_remove(MEEGO_NTP_SERVER);
-}
-
-CONNMAN_PLUGIN_DEFINE(meego, "MeeGo features plugin", VERSION,
-			CONNMAN_PLUGIN_PRIORITY_LOW, meego_init, meego_exit)
+#endif /* __RTCTIMER_H */

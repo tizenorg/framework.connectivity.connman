@@ -29,6 +29,26 @@
 
 #include "test-connman.h"
 
+static enum connman_session_state string2state(const char *state)
+{
+	if (g_strcmp0(state, "connected") == 0)
+		return CONNMAN_SESSION_STATE_CONNECTED;
+	if (g_strcmp0(state, "online") == 0)
+		return CONNMAN_SESSION_STATE_ONLINE;
+
+	return CONNMAN_SESSION_STATE_DISCONNECTED;
+}
+
+static enum connman_session_state string2type(const char *type)
+{
+	if (g_strcmp0(type, "local") == 0)
+		return CONNMAN_SESSION_TYPE_LOCAL;
+	if (g_strcmp0(type, "internet") == 0)
+		return CONNMAN_SESSION_TYPE_INTERNET;
+
+	return CONNMAN_SESSION_TYPE_ANY;
+}
+
 static const char *roamingpolicy2string(enum connman_session_roaming_policy policy)
 {
 	switch (policy) {
@@ -163,10 +183,7 @@ static DBusMessage *notify_update(DBusConnection *conn,
 			}
 			break;
 		case DBUS_TYPE_BOOLEAN:
-			if (g_str_equal(key, "Online") == TRUE) {
-				dbus_message_iter_get_basic(&value,
-							&info->online);
-			} else if (g_str_equal(key, "Priority") == TRUE) {
+			if (g_str_equal(key, "Priority") == TRUE) {
 				dbus_message_iter_get_basic(&value,
 							&info->priority);
 
@@ -206,7 +223,12 @@ static DBusMessage *notify_update(DBusConnection *conn,
 			}
 			break;
 		case DBUS_TYPE_STRING:
-			if (g_str_equal(key, "Bearer") == TRUE) {
+			if (g_str_equal(key, "State") == TRUE) {
+				const char *val;
+				dbus_message_iter_get_basic(&value, &val);
+
+				info->state = string2state(val);
+			} else if (g_str_equal(key, "Bearer") == TRUE) {
 				const char *val;
 				dbus_message_iter_get_basic(&value, &val);
 
@@ -239,6 +261,12 @@ static DBusMessage *notify_update(DBusConnection *conn,
 
 				info->interface = g_strdup(val);
 
+			} else if (g_str_equal(key, "ConnectionType")
+								== TRUE) {
+				const char *val;
+				dbus_message_iter_get_basic(&value, &val);
+
+				info->type = string2type(val);
 			} else {
 				g_assert(FALSE);
 				return __connman_error_invalid_arguments(msg);
@@ -257,9 +285,11 @@ static DBusMessage *notify_update(DBusConnection *conn,
 	return g_dbus_create_reply(msg, DBUS_TYPE_INVALID);
 }
 
-static GDBusMethodTable notify_methods[] = {
-	{ "Release", "",      "", notify_release },
-	{ "Update",  "a{sv}", "", notify_update  },
+static const GDBusMethodTable notify_methods[] = {
+	{ GDBUS_METHOD("Release", NULL, NULL, notify_release) },
+	{ GDBUS_METHOD("Update",
+			GDBUS_ARGS({ "settings", "a{sv}" }), NULL,
+			notify_update) },
 	{ },
 };
 

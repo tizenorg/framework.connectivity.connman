@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -32,14 +32,7 @@ extern "C" {
  * @short_description: Functions for IP configuration handling
  */
 
-struct connman_ipaddress {
-	int family;
-	unsigned char prefixlen;
-	char *local;
-	char *peer;
-	char *broadcast;
-	char *gateway;
-};
+struct connman_ipaddress;
 
 struct connman_ipaddress *connman_ipaddress_alloc(int family);
 void connman_ipaddress_free(struct connman_ipaddress *ipaddress);
@@ -73,33 +66,6 @@ enum connman_ipconfig_method {
 };
 
 struct connman_ipconfig;
-
-struct connman_ipconfig_ops {
-	void (*up) (struct connman_ipconfig *ipconfig);
-	void (*down) (struct connman_ipconfig *ipconfig);
-	void (*lower_up) (struct connman_ipconfig *ipconfig);
-	void (*lower_down) (struct connman_ipconfig *ipconfig);
-	void (*ip_bound) (struct connman_ipconfig *ipconfig);
-	void (*ip_release) (struct connman_ipconfig *ipconfig);
-};
-
-struct connman_ipconfig *connman_ipconfig_create(int index,
-					enum connman_ipconfig_type type);
-struct connman_ipconfig *connman_ipconfig_ref(struct connman_ipconfig *ipconfig);
-void connman_ipconfig_unref(struct connman_ipconfig *ipconfig);
-
-void *connman_ipconfig_get_data(struct connman_ipconfig *ipconfig);
-void connman_ipconfig_set_data(struct connman_ipconfig *ipconfig, void *data);
-
-int connman_ipconfig_get_index(struct connman_ipconfig *ipconfig);
-const char *connman_ipconfig_get_ifname(struct connman_ipconfig *ipconfig);
-
-void connman_ipconfig_set_ops(struct connman_ipconfig *ipconfig,
-				const struct connman_ipconfig_ops *ops);
-int connman_ipconfig_set_method(struct connman_ipconfig *ipconfig,
-					enum connman_ipconfig_method method);
-void __connman_ipconfig_disable_ipv6(struct connman_ipconfig *ipconfig);
-void __connman_ipconfig_enable_ipv6(struct connman_ipconfig *ipconfig);
 
 #ifdef __cplusplus
 }

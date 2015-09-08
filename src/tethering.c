@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
  *  Copyright (C) 2011	ProFUSION embedded systems
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -35,6 +35,8 @@
 #include <string.h>
 #include <fcntl.h>
 #include <linux/if_tun.h>
+#include <netinet/in.h>
+#include <linux/if_bridge.h>
 
 #include "connman.h"
 
@@ -46,27 +48,17 @@
 #define DBUS_TYPE_UNIX_FD -1
 #endif
 
-#define BRIDGE_PROC_DIR "/proc/sys/net/bridge"
-
 #define BRIDGE_NAME "tether"
-#define BRIDGE_IP "192.168.218.1"
-#define BRIDGE_BCAST "192.168.218.255"
-#define BRIDGE_SUBNET "255.255.255.0"
-#define BRIDGE_IP_START "192.168.218.100"
-#define BRIDGE_IP_END "192.168.218.200"
 #define BRIDGE_DNS "8.8.8.8"
 
 #define DEFAULT_MTU	1500
 
-#define PRIVATE_NETWORK_IP "192.168.219.1"
-#define PRIVATE_NETWORK_PEER_IP "192.168.219.2"
-#define PRIVATE_NETWORK_NETMASK "255.255.255.0"
 #define PRIVATE_NETWORK_PRIMARY_DNS BRIDGE_DNS
 #define PRIVATE_NETWORK_SECONDARY_DNS "8.8.4.4"
 
-static char *default_interface = NULL;
 static volatile int tethering_enabled;
 static GDHCPServer *tethering_dhcp_server = NULL;
+static struct connman_ippool *dhcp_ippool = NULL;
 static DBusConnection *connection;
 static GHashTable *pn_hash;
 
@@ -80,17 +72,25 @@ struct connman_private_network {
 	char *interface;
 	int index;
 	guint iface_watch;
-	const char *server_ip;
-	const char *peer_ip;
+	struct connman_ippool *pool;
 	const char *primary_dns;
 	const char *secondary_dns;
 };
 
 const char *__connman_tethering_get_bridge(void)
 {
-	struct stat st;
+	int sk, err;
+	unsigned long args[3];
 
-	if (stat(BRIDGE_PROC_DIR, &st) < 0) {
+	sk = socket(AF_INET, SOCK_STREAM, 0);
+	if (sk < 0)
+		return NULL;
+
+	args[0] = BRCTL_GET_VERSION;
+	args[1] = args[2] = 0;
+	err = ioctl(sk, SIOCGIFBR, &args);
+	close(sk);
+	if (err == -1) {
 		connman_error("Missing support for 802.1d ethernet bridging");
 		return NULL;
 	}
@@ -175,250 +175,110 @@ static void dhcp_server_stop(GDHCPServer *server)
 	g_dhcp_server_unref(server);
 }
 
-static int set_forward_delay(const char *name, unsigned int delay)
+static void tethering_restart(struct connman_ippool *pool, void *user_data)
 {
-	FILE *f;
-	char *forward_delay_path;
-
-	forward_delay_path =
-		g_strdup_printf("/sys/class/net/%s/bridge/forward_delay", name);
-
-	if (forward_delay_path == NULL)
-		return -ENOMEM;
-
-	f = fopen(forward_delay_path, "r+");
-
-	g_free(forward_delay_path);
-
-	if (f == NULL)
-		return -errno;
-
-	fprintf(f, "%d", delay);
-
-	fclose(f);
-
-	return 0;
-}
-
-static int create_bridge(const char *name)
-{
-	int sk, err;
-
-	DBG("name %s", name);
-
-	sk = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
-	if (sk < 0)
-		return -EOPNOTSUPP;
-
-	if (ioctl(sk, SIOCBRADDBR, name) == -1) {
-		err = -errno;
-		if (err != -EEXIST)
-			return -EOPNOTSUPP;
-	}
-
-	err = set_forward_delay(name, 0);
-
-	if (err < 0)
-		ioctl(sk, SIOCBRDELBR, name);
-
-	close(sk);
-
-	return err;
-}
-
-static int remove_bridge(const char *name)
-{
-	int sk, err;
-
-	DBG("name %s", name);
-
-	sk = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
-	if (sk < 0)
-		return -EOPNOTSUPP;
-
-	err = ioctl(sk, SIOCBRDELBR, name);
-
-	close(sk);
-
-	if (err < 0)
-		return -EOPNOTSUPP;
-
-	return 0;
-}
-
-static int enable_bridge(const char *name)
-{
-	int err, index;
-
-	index = connman_inet_ifindex(name);
-	if (index < 0)
-		return index;
-
-	err = __connman_inet_modify_address(RTM_NEWADDR,
-			NLM_F_REPLACE | NLM_F_ACK, index, AF_INET,
-					BRIDGE_IP, NULL, 24, BRIDGE_BCAST);
-	if (err < 0)
-		return err;
-
-	return connman_inet_ifup(index);
-}
-
-static int disable_bridge(const char *name)
-{
-	int index;
-
-	index = connman_inet_ifindex(name);
-	if (index < 0)
-		return index;
-
-	return connman_inet_ifdown(index);
-}
-
-static int enable_ip_forward(connman_bool_t enable)
-{
-
-	FILE *f;
-
-	f = fopen("/proc/sys/net/ipv4/ip_forward", "r+");
-	if (f == NULL)
-		return -errno;
-
-	if (enable == TRUE)
-		fprintf(f, "1");
-	else
-		fprintf(f, "0");
-
-	fclose(f);
-
-	return 0;
-}
-
-static int enable_nat(const char *interface)
-{
-	int err;
-
-	if (interface == NULL)
-		return 0;
-
-	/* Enable IPv4 forwarding */
-	err = enable_ip_forward(TRUE);
-	if (err < 0)
-		return err;
-
-	/* POSTROUTING flush */
-	err = __connman_iptables_command("-t nat -F POSTROUTING");
-	if (err < 0)
-		return err;
-
-	/* Enable masquerading */
-	err = __connman_iptables_command("-t nat -A POSTROUTING "
-					"-o %s -j MASQUERADE", interface);
-	if (err < 0)
-		return err;
-
-	return __connman_iptables_commit("nat");
-}
-
-static void disable_nat(const char *interface)
-{
-	int err;
-
-	/* Disable IPv4 forwarding */
-	enable_ip_forward(FALSE);
-
-	/* POSTROUTING flush */
-	err = __connman_iptables_command("-t nat -F POSTROUTING");
-	if (err < 0)
-		return;
-
-	__connman_iptables_commit("nat");
+	__connman_tethering_set_disabled();
+	__connman_tethering_set_enabled();
 }
 
 void __connman_tethering_set_enabled(void)
 {
+	int index;
 	int err;
+	const char *gateway;
+	const char *broadcast;
+	const char *subnet_mask;
+	const char *start_ip;
+	const char *end_ip;
 	const char *dns;
+	unsigned char prefixlen;
 
 	DBG("enabled %d", tethering_enabled + 1);
 
 	if (__sync_fetch_and_add(&tethering_enabled, 1) != 0)
 		return;
 
-	err = create_bridge(BRIDGE_NAME);
-	if (err < 0)
-		return;
-
-	err = enable_bridge(BRIDGE_NAME);
-	if (err < 0 && err != -EALREADY) {
-		remove_bridge(BRIDGE_NAME);
+	err = __connman_bridge_create(BRIDGE_NAME);
+	if (err < 0) {
+		__sync_fetch_and_sub(&tethering_enabled, 1);
 		return;
 	}
 
-	dns = BRIDGE_IP;
-	if (__connman_dnsproxy_add_listener(BRIDGE_NAME) < 0) {
+	index = connman_inet_ifindex(BRIDGE_NAME);
+	dhcp_ippool = __connman_ippool_create(index, 2, 252,
+						tethering_restart, NULL);
+	if (dhcp_ippool == NULL) {
+		connman_error("Fail to create IP pool");
+		__connman_bridge_remove(BRIDGE_NAME);
+		__sync_fetch_and_sub(&tethering_enabled, 1);
+		return;
+	}
+
+	gateway = __connman_ippool_get_gateway(dhcp_ippool);
+	broadcast = __connman_ippool_get_broadcast(dhcp_ippool);
+	subnet_mask = __connman_ippool_get_subnet_mask(dhcp_ippool);
+	start_ip = __connman_ippool_get_start_ip(dhcp_ippool);
+	end_ip = __connman_ippool_get_end_ip(dhcp_ippool);
+
+	err = __connman_bridge_enable(BRIDGE_NAME, gateway, broadcast);
+	if (err < 0 && err != -EALREADY) {
+		__connman_ippool_unref(dhcp_ippool);
+		__connman_bridge_remove(BRIDGE_NAME);
+		__sync_fetch_and_sub(&tethering_enabled, 1);
+		return;
+	}
+
+	dns = gateway;
+	if (__connman_dnsproxy_add_listener(index) < 0) {
 		connman_error("Can't add listener %s to DNS proxy",
 								BRIDGE_NAME);
 		dns = BRIDGE_DNS;
 	}
 
-	tethering_dhcp_server =
-		dhcp_server_start(BRIDGE_NAME,
-					BRIDGE_IP, BRIDGE_SUBNET,
-					BRIDGE_IP_START, BRIDGE_IP_END,
-					24 * 3600, dns);
+	tethering_dhcp_server = dhcp_server_start(BRIDGE_NAME,
+						gateway, subnet_mask,
+						start_ip, end_ip,
+						24 * 3600, dns);
 	if (tethering_dhcp_server == NULL) {
-		disable_bridge(BRIDGE_NAME);
-		remove_bridge(BRIDGE_NAME);
+		__connman_bridge_disable(BRIDGE_NAME);
+		__connman_ippool_unref(dhcp_ippool);
+		__connman_bridge_remove(BRIDGE_NAME);
+		__sync_fetch_and_sub(&tethering_enabled, 1);
 		return;
 	}
 
-	enable_nat(default_interface);
+	prefixlen =
+		__connman_ipconfig_netmask_prefix_len(subnet_mask);
+	__connman_nat_enable(BRIDGE_NAME, start_ip, prefixlen);
 
 	DBG("tethering started");
 }
 
 void __connman_tethering_set_disabled(void)
 {
+	int index;
+
 	DBG("enabled %d", tethering_enabled - 1);
 
-	__connman_dnsproxy_remove_listener(BRIDGE_NAME);
+	index = connman_inet_ifindex(BRIDGE_NAME);
+	__connman_dnsproxy_remove_listener(index);
 
 	if (__sync_fetch_and_sub(&tethering_enabled, 1) != 1)
 		return;
 
-	disable_nat(default_interface);
+	__connman_nat_disable(BRIDGE_NAME);
 
 	dhcp_server_stop(tethering_dhcp_server);
 
 	tethering_dhcp_server = NULL;
 
-	disable_bridge(BRIDGE_NAME);
+	__connman_bridge_disable(BRIDGE_NAME);
 
-	remove_bridge(BRIDGE_NAME);
+	__connman_ippool_unref(dhcp_ippool);
+
+	__connman_bridge_remove(BRIDGE_NAME);
 
 	DBG("tethering stopped");
-}
-
-void __connman_tethering_update_interface(const char *interface)
-{
-	DBG("interface %s", interface);
-
-	g_free(default_interface);
-
-	if (interface == NULL) {
-		disable_nat(interface);
-		default_interface = NULL;
-
-		return;
-	}
-
-	default_interface = g_strdup(interface);
-
-	__sync_synchronize();
-	if (tethering_enabled == 0)
-		return;
-
-	enable_nat(interface);
 }
 
 static void setup_tun_interface(unsigned int flags, unsigned change,
@@ -427,6 +287,9 @@ static void setup_tun_interface(unsigned int flags, unsigned change,
 	struct connman_private_network *pn = data;
 	unsigned char prefixlen;
 	DBusMessageIter array, dict;
+	const char *server_ip;
+	const char *peer_ip;
+	const char *subnet_mask;
 	int err;
 
 	DBG("index %d flags %d change %d", pn->index,  flags, change);
@@ -434,22 +297,24 @@ static void setup_tun_interface(unsigned int flags, unsigned change,
 	if (flags & IFF_UP)
 		return;
 
+	subnet_mask = __connman_ippool_get_subnet_mask(pn->pool);
+	server_ip = __connman_ippool_get_start_ip(pn->pool);
+	peer_ip = __connman_ippool_get_end_ip(pn->pool);
 	prefixlen =
-		__connman_ipconfig_netmask_prefix_len(PRIVATE_NETWORK_NETMASK);
+		__connman_ipconfig_netmask_prefix_len(subnet_mask);
 
 	if ((__connman_inet_modify_address(RTM_NEWADDR,
 				NLM_F_REPLACE | NLM_F_ACK, pn->index, AF_INET,
-				pn->server_ip, pn->peer_ip,
-				prefixlen, NULL)) < 0) {
+				server_ip, peer_ip, prefixlen, NULL)) < 0) {
 		DBG("address setting failed");
 		return;
 	}
 
 	connman_inet_ifup(pn->index);
 
-	err = enable_nat(default_interface);
+	err = __connman_nat_enable(BRIDGE_NAME, server_ip, prefixlen);
 	if (err < 0) {
-		connman_error("failed to enable NAT on %s", default_interface);
+		connman_error("failed to enable NAT");
 		goto error;
 	}
 
@@ -461,9 +326,9 @@ static void setup_tun_interface(unsigned int flags, unsigned change,
 	connman_dbus_dict_open(&array, &dict);
 
 	connman_dbus_dict_append_basic(&dict, "ServerIPv4",
-					DBUS_TYPE_STRING, &pn->server_ip);
+					DBUS_TYPE_STRING, &server_ip);
 	connman_dbus_dict_append_basic(&dict, "PeerIPv4",
-					DBUS_TYPE_STRING, &pn->peer_ip);
+					DBUS_TYPE_STRING, &peer_ip);
 	connman_dbus_dict_append_basic(&dict, "PrimaryDNS",
 					DBUS_TYPE_STRING, &pn->primary_dns);
 	connman_dbus_dict_append_basic(&dict, "SecondaryDNS",
@@ -488,8 +353,9 @@ static void remove_private_network(gpointer user_data)
 {
 	struct connman_private_network *pn = user_data;
 
-	disable_nat(default_interface);
+	__connman_nat_disable(BRIDGE_NAME);
 	connman_rtnl_remove_watch(pn->iface_watch);
+	__connman_ippool_unref(pn->pool);
 
 	if (pn->watch > 0) {
 		g_dbus_remove_watch(connection, pn->watch);
@@ -504,13 +370,22 @@ static void remove_private_network(gpointer user_data)
 	g_free(pn);
 }
 
-static void owner_disconnect(DBusConnection *connection, void *user_data)
+static void owner_disconnect(DBusConnection *conn, void *user_data)
 {
 	struct connman_private_network *pn = user_data;
 
 	DBG("%s died", pn->owner);
 
 	pn->watch = 0;
+
+	g_hash_table_remove(pn_hash, pn->path);
+}
+
+static void ippool_disconnect(struct connman_ippool *pool, void *user_data)
+{
+	struct connman_private_network *pn = user_data;
+
+	DBG("block used externally");
 
 	g_hash_table_remove(pn_hash, pn->path);
 }
@@ -566,8 +441,12 @@ int __connman_private_network_request(DBusMessage *msg, const char *owner)
 	pn->fd = fd;
 	pn->interface = iface;
 	pn->index = index;
-	pn->server_ip = PRIVATE_NETWORK_IP;
-	pn->peer_ip = PRIVATE_NETWORK_PEER_IP;
+	pn->pool = __connman_ippool_create(pn->index, 1, 1, ippool_disconnect, pn);
+	if (pn->pool == NULL) {
+		errno = -ENOMEM;
+		goto error;
+	}
+
 	pn->primary_dns = PRIVATE_NETWORK_PRIMARY_DNS;
 	pn->secondary_dns = PRIVATE_NETWORK_SECONDARY_DNS;
 
@@ -622,8 +501,9 @@ void __connman_tethering_cleanup(void)
 	if (tethering_enabled == 0) {
 		if (tethering_dhcp_server)
 			dhcp_server_stop(tethering_dhcp_server);
-		disable_bridge(BRIDGE_NAME);
-		remove_bridge(BRIDGE_NAME);
+		__connman_bridge_disable(BRIDGE_NAME);
+		__connman_bridge_remove(BRIDGE_NAME);
+		__connman_nat_disable(BRIDGE_NAME);
 	}
 
 	if (connection == NULL)

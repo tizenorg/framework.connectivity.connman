@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -37,7 +37,6 @@
 
 #include <dbus/dbus.h>
 
-#include <glib/ghash.h>
 #include <glib/gprintf.h>
 
 #include <connman/provider.h>
@@ -135,7 +134,12 @@ void vpn_died(struct connman_task *task, int exit_code, void *user_data)
 
 	stop_vpn(provider);
 	connman_provider_set_data(provider, NULL);
-	connman_rtnl_remove_watch(data->watch);
+
+	if (data->watch != 0) {
+		connman_provider_unref(provider);
+		connman_rtnl_remove_watch(data->watch);
+		data->watch = 0;
+	}
 
 vpn_exit:
 	if (state != VPN_STATE_READY && state != VPN_STATE_DISCONNECT) {
@@ -158,10 +162,12 @@ vpn_exit:
 						CONNMAN_PROVIDER_STATE_IDLE);
 
 	connman_provider_set_index(provider, -1);
-	connman_provider_unref(data->provider);
 
-	g_free(data->if_name);
-	g_free(data);
+	if (data != NULL) {
+		connman_provider_unref(data->provider);
+		g_free(data->if_name);
+		g_free(data);
+	}
 
 	connman_task_destroy(task);
 }
@@ -226,6 +232,7 @@ static DBusMessage *vpn_notify(struct connman_task *task,
 	case VPN_STATE_CONNECT:
 	case VPN_STATE_READY:
 		index = connman_provider_get_index(provider);
+		connman_provider_ref(provider);
 		data->watch = connman_rtnl_add_newlink_watch(index,
 						     vpn_newlink, provider);
 		connman_inet_ifup(index);
@@ -346,9 +353,12 @@ static int vpn_connect(struct connman_provider *provider)
 
 	vpn_driver_data = g_hash_table_lookup(driver_hash, name);
 
-	if (vpn_driver_data != NULL && vpn_driver_data->vpn_driver != NULL &&
-		vpn_driver_data->vpn_driver->flags != VPN_FLAG_NO_TUN) {
+	if (vpn_driver_data == NULL || vpn_driver_data->vpn_driver == NULL) {
+		ret = -EINVAL;
+		goto exist_err;
+	}
 
+	if (vpn_driver_data->vpn_driver->flags != VPN_FLAG_NO_TUN) {
 		ret = vpn_create_tun(provider);
 		if (ret < 0)
 			goto exist_err;
@@ -421,10 +431,12 @@ static int vpn_disconnect(struct connman_provider *provider)
 	if (vpn_driver_data->vpn_driver->disconnect)
 		vpn_driver_data->vpn_driver->disconnect();
 
-	if (data->watch != 0)
+	if (data->watch != 0) {
+		connman_provider_unref(provider);
 		connman_rtnl_remove_watch(data->watch);
+		data->watch = 0;
+	}
 
-	data->watch = 0;
 	data->state = VPN_STATE_DISCONNECT;
 	connman_task_stop(data->task);
 
@@ -439,9 +451,12 @@ static int vpn_remove(struct connman_provider *provider)
 	if (data == NULL)
 		return 0;
 
-	if (data->watch != 0)
+	if (data->watch != 0) {
+		connman_provider_unref(provider);
 		connman_rtnl_remove_watch(data->watch);
-	data->watch = 0;
+		data->watch = 0;
+	}
+
 	connman_task_stop(data->task);
 
 	g_usleep(G_USEC_PER_SEC);
@@ -484,13 +499,18 @@ int vpn_register(const char *name, struct vpn_driver *vpn_driver,
 	data->provider_driver.remove = vpn_remove;
 	data->provider_driver.save = vpn_save;
 
-	if (driver_hash == NULL) {
+	if (driver_hash == NULL)
 		driver_hash = g_hash_table_new_full(g_str_hash,
 							g_str_equal,
 							NULL, g_free);
+
+	if (driver_hash == NULL) {
+		connman_error("driver_hash not initialized for %s", name);
+		g_free(data);
+		return -ENOMEM;
 	}
 
-	g_hash_table_insert(driver_hash, (char *)name, data);
+	g_hash_table_replace(driver_hash, (char *)name, data);
 
 	connman_provider_driver_register(&data->provider_driver);
 

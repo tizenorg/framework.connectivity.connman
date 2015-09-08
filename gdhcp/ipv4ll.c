@@ -36,7 +36,7 @@
 #include "ipv4ll.h"
 
 /**
- * Return a random link local IP
+ * Return a random link local IP (in host byte order)
  */
 uint32_t ipv4ll_random_ip(int seed)
 {
@@ -111,7 +111,7 @@ int ipv4ll_send_arp_packet(uint8_t* source_eth, uint32_t source_ip,
 	n = sendto(fd, &p, sizeof(p), 0,
 	       (struct sockaddr*) &dest, sizeof(dest));
 	if (n < 0)
-		return -errno;
+		n = -errno;
 
 	close(fd);
 
@@ -122,9 +122,12 @@ int ipv4ll_arp_socket(int ifindex)
 {
 	int fd;
 	struct sockaddr_ll sock;
+
 	fd = socket(PF_PACKET, SOCK_DGRAM | SOCK_CLOEXEC, htons(ETH_P_ARP));
 	if (fd < 0)
 		return fd;
+
+	memset(&sock, 0, sizeof(sock));
 
 	sock.sll_family = AF_PACKET;
 	sock.sll_protocol = htons(ETH_P_ARP);

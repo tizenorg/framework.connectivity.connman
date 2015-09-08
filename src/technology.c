@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -34,6 +34,13 @@ static DBusConnection *connection;
 
 static GSList *technology_list = NULL;
 
+/*
+ * List of devices with no technology associated with them either because of
+ * no compiled in support or the driver is not yet loaded.
+*/
+static GSList *techless_device_list = NULL;
+static GHashTable *rfkill_list;
+
 static connman_bool_t global_offlinemode;
 
 struct connman_rfkill {
@@ -43,22 +50,14 @@ struct connman_rfkill {
 	connman_bool_t hardblock;
 };
 
-enum connman_technology_state {
-	CONNMAN_TECHNOLOGY_STATE_UNKNOWN   = 0,
-	CONNMAN_TECHNOLOGY_STATE_OFFLINE   = 1,
-	CONNMAN_TECHNOLOGY_STATE_ENABLED   = 2,
-	CONNMAN_TECHNOLOGY_STATE_CONNECTED = 3,
-};
-
 struct connman_technology {
 	int refcount;
 	enum connman_service_type type;
-	enum connman_technology_state state;
 	char *path;
-	GHashTable *rfkill_list;
 	GSList *device_list;
 	int enabled;
 	char *regdom;
+	connman_bool_t connected;
 
 	connman_bool_t tethering;
 	char *tethering_ident;
@@ -71,6 +70,8 @@ struct connman_technology {
 
 	DBusMessage *pending_reply;
 	guint pending_timeout;
+
+	GSList *scan_pending;
 };
 
 static GSList *driver_list = NULL;
@@ -81,6 +82,17 @@ static gint compare_priority(gconstpointer a, gconstpointer b)
 	const struct connman_technology_driver *driver2 = b;
 
 	return driver2->priority - driver1->priority;
+}
+
+static void rfkill_check(gpointer key, gpointer value, gpointer user_data)
+{
+	struct connman_rfkill *rfkill = value;
+	enum connman_service_type type = GPOINTER_TO_INT(user_data);
+
+	/* Calling _technology_rfkill_add will update the tech. */
+	if (rfkill->type == type)
+		__connman_technology_add_rfkill(rfkill->index, type,
+				rfkill->softblock, rfkill->hardblock);
 }
 
 /**
@@ -94,22 +106,34 @@ static gint compare_priority(gconstpointer a, gconstpointer b)
 int connman_technology_driver_register(struct connman_technology_driver *driver)
 {
 	GSList *list;
-	struct connman_technology *technology;
+	struct connman_device *device;
+	enum connman_service_type type;
 
-	DBG("driver %p name %s", driver, driver->name);
+	DBG("Registering %s driver", driver->name);
 
 	driver_list = g_slist_insert_sorted(driver_list, driver,
 							compare_priority);
 
-	for (list = technology_list; list; list = list->next) {
-		technology = list->data;
+	/*
+	 * Check for technology less devices if this driver
+	 * can service any of them.
+	*/
+	for (list = techless_device_list; list != NULL; list = list->next) {
+		device = list->data;
 
-		if (technology->driver != NULL)
+		type = __connman_device_get_service_type(device);
+		if (type != driver->type)
 			continue;
 
-		if (technology->type == driver->type)
-			technology->driver = driver;
+		techless_device_list = g_slist_remove(techless_device_list,
+								device);
+
+		__connman_technology_add_device(device);
 	}
+
+	/* Check for orphaned rfkill switches. */
+	g_hash_table_foreach(rfkill_list, rfkill_check,
+					GINT_TO_POINTER(driver->type));
 
 	return 0;
 }
@@ -125,7 +149,7 @@ void connman_technology_driver_unregister(struct connman_technology_driver *driv
 	GSList *list;
 	struct connman_technology *technology;
 
-	DBG("driver %p name %s", driver, driver->name);
+	DBG("Unregistering driver %p name %s", driver, driver->name);
 
 	for (list = technology_list; list; list = list->next) {
 		technology = list->data;
@@ -240,57 +264,6 @@ static void free_rfkill(gpointer data)
 	g_free(rfkill);
 }
 
-void __connman_technology_list(DBusMessageIter *iter, void *user_data)
-{
-	GSList *list;
-
-	for (list = technology_list; list; list = list->next) {
-		struct connman_technology *technology = list->data;
-
-		if (technology->path == NULL)
-			continue;
-
-		dbus_message_iter_append_basic(iter, DBUS_TYPE_OBJECT_PATH,
-							&technology->path);
-	}
-}
-
-static void technologies_changed(void)
-{
-	connman_dbus_property_changed_array(CONNMAN_MANAGER_PATH,
-			CONNMAN_MANAGER_INTERFACE, "Technologies",
-			DBUS_TYPE_OBJECT_PATH, __connman_technology_list, NULL);
-}
-
-static const char *state2string(enum connman_technology_state state)
-{
-	switch (state) {
-	case CONNMAN_TECHNOLOGY_STATE_UNKNOWN:
-		break;
-	case CONNMAN_TECHNOLOGY_STATE_OFFLINE:
-		return "offline";
-	case CONNMAN_TECHNOLOGY_STATE_ENABLED:
-		return "enabled";
-	case CONNMAN_TECHNOLOGY_STATE_CONNECTED:
-		return "connected";
-	}
-
-	return NULL;
-}
-
-static void state_changed(struct connman_technology *technology)
-{
-	const char *str;
-
-	str = state2string(technology->state);
-	if (str == NULL)
-		return;
-
-	connman_dbus_property_changed_basic(technology->path,
-				CONNMAN_TECHNOLOGY_INTERFACE, "State",
-						DBUS_TYPE_STRING, &str);
-}
-
 static const char *get_name(enum connman_service_type type)
 {
 	switch (type) {
@@ -304,50 +277,13 @@ static const char *get_name(enum connman_service_type type)
 		return "Wired";
 	case CONNMAN_SERVICE_TYPE_WIFI:
 		return "WiFi";
-	case CONNMAN_SERVICE_TYPE_WIMAX:
-		return "WiMAX";
 	case CONNMAN_SERVICE_TYPE_BLUETOOTH:
 		return "Bluetooth";
 	case CONNMAN_SERVICE_TYPE_CELLULAR:
-		return "3G";
+		return "Cellular";
 	}
 
 	return NULL;
-}
-
-static void load_state(struct connman_technology *technology)
-{
-	GKeyFile *keyfile;
-	gchar *identifier;
-	GError *error = NULL;
-	connman_bool_t enable;
-
-	DBG("technology %p", technology);
-
-	keyfile = __connman_storage_load_global();
-	/* Fallback on disabling technology if file not found. */
-	if (keyfile == NULL) {
-		technology->enable_persistent = FALSE;
-		return;
-	}
-
-	identifier = g_strdup_printf("%s", get_name(technology->type));
-	if (identifier == NULL)
-		goto done;
-
-	enable = g_key_file_get_boolean(keyfile, identifier, "Enable", &error);
-	if (error == NULL)
-		technology->enable_persistent = enable;
-	else {
-		technology->enable_persistent = FALSE;
-		g_clear_error(&error);
-	}
-done:
-	g_free(identifier);
-
-	g_key_file_free(keyfile);
-
-	return;
 }
 
 static void save_state(struct connman_technology *technology)
@@ -378,12 +314,56 @@ done:
 	return;
 }
 
+static void load_state(struct connman_technology *technology)
+{
+	GKeyFile *keyfile;
+	gchar *identifier;
+	GError *error = NULL;
+	connman_bool_t enable;
+
+	DBG("technology %p", technology);
+
+	keyfile = __connman_storage_load_global();
+	/* Fallback on disabling technology if file not found. */
+	if (keyfile == NULL) {
+		if (technology->type == CONNMAN_SERVICE_TYPE_ETHERNET)
+			/* We enable ethernet by default */
+			technology->enable_persistent = TRUE;
+		else
+			technology->enable_persistent = FALSE;
+		return;
+	}
+
+	identifier = g_strdup_printf("%s", get_name(technology->type));
+	if (identifier == NULL)
+		goto done;
+
+	enable = g_key_file_get_boolean(keyfile, identifier, "Enable", &error);
+	if (error == NULL)
+		technology->enable_persistent = enable;
+	else {
+		if (technology->type == CONNMAN_SERVICE_TYPE_ETHERNET)
+			technology->enable_persistent = TRUE;
+		else
+			technology->enable_persistent = FALSE;
+
+		save_state(technology);
+		g_clear_error(&error);
+	}
+done:
+	g_free(identifier);
+
+	g_key_file_free(keyfile);
+
+	return;
+}
+
 connman_bool_t __connman_technology_get_offlinemode(void)
 {
 	return global_offlinemode;
 }
 
-static void connman_technology_save_offlinemode()
+static void connman_technology_save_offlinemode(void)
 {
 	GKeyFile *keyfile;
 
@@ -401,7 +381,7 @@ static void connman_technology_save_offlinemode()
 	return;
 }
 
-static connman_bool_t connman_technology_load_offlinemode()
+static connman_bool_t connman_technology_load_offlinemode(void)
 {
 	GKeyFile *keyfile;
 	GError *error = NULL;
@@ -410,12 +390,12 @@ static connman_bool_t connman_technology_load_offlinemode()
 	/* If there is a error, we enable offlinemode */
 	keyfile = __connman_storage_load_global();
 	if (keyfile == NULL)
-		return TRUE;
+		return FALSE;
 
 	offlinemode = g_key_file_get_boolean(keyfile, "global",
 						"OfflineMode", &error);
 	if (error != NULL) {
-		offlinemode = TRUE;
+		offlinemode = FALSE;
 		g_clear_error(&error);
 	}
 
@@ -424,26 +404,14 @@ static connman_bool_t connman_technology_load_offlinemode()
 	return offlinemode;
 }
 
-static DBusMessage *get_properties(DBusConnection *conn,
-					DBusMessage *message, void *user_data)
+static void append_properties(DBusMessageIter *iter,
+		struct connman_technology *technology)
 {
-	struct connman_technology *technology = user_data;
-	DBusMessage *reply;
-	DBusMessageIter array, dict;
+	DBusMessageIter dict;
 	const char *str;
+	connman_bool_t powered;
 
-	reply = dbus_message_new_method_return(message);
-	if (reply == NULL)
-		return NULL;
-
-	dbus_message_iter_init_append(reply, &array);
-
-	connman_dbus_dict_open(&array, &dict);
-
-	str = state2string(technology->state);
-	if (str != NULL)
-		connman_dbus_dict_append_basic(&dict, "State",
-						DBUS_TYPE_STRING, &str);
+	connman_dbus_dict_open(iter, &dict);
 
 	str = get_name(technology->type);
 	if (str != NULL)
@@ -454,6 +422,18 @@ static DBusMessage *get_properties(DBusConnection *conn,
 	if (str != NULL)
 		connman_dbus_dict_append_basic(&dict, "Type",
 						DBUS_TYPE_STRING, &str);
+
+	__sync_synchronize();
+	if (technology->enabled > 0)
+		powered = TRUE;
+	else
+		powered = FALSE;
+	connman_dbus_dict_append_basic(&dict, "Powered",
+					DBUS_TYPE_BOOLEAN, &powered);
+
+	connman_dbus_dict_append_basic(&dict, "Connected",
+					DBUS_TYPE_BOOLEAN,
+					&technology->connected);
 
 	connman_dbus_dict_append_basic(&dict, "Tethering",
 					DBUS_TYPE_BOOLEAN,
@@ -469,9 +449,234 @@ static DBusMessage *get_properties(DBusConnection *conn,
 						DBUS_TYPE_STRING,
 						&technology->tethering_passphrase);
 
-	connman_dbus_dict_close(&array, &dict);
+	connman_dbus_dict_close(iter, &dict);
+}
+
+static void technology_added_signal(struct connman_technology *technology)
+{
+	DBusMessage *signal;
+	DBusMessageIter iter;
+
+	signal = dbus_message_new_signal(CONNMAN_MANAGER_PATH,
+			CONNMAN_MANAGER_INTERFACE, "TechnologyAdded");
+	if (signal == NULL)
+		return;
+
+	dbus_message_iter_init_append(signal, &iter);
+	dbus_message_iter_append_basic(&iter, DBUS_TYPE_OBJECT_PATH,
+							&technology->path);
+	append_properties(&iter, technology);
+
+	dbus_connection_send(connection, signal, NULL);
+	dbus_message_unref(signal);
+}
+
+static void technology_removed_signal(struct connman_technology *technology)
+{
+	g_dbus_emit_signal(connection, CONNMAN_MANAGER_PATH,
+			CONNMAN_MANAGER_INTERFACE, "TechnologyRemoved",
+			DBUS_TYPE_OBJECT_PATH, &technology->path,
+			DBUS_TYPE_INVALID);
+}
+
+static DBusMessage *get_properties(DBusConnection *conn,
+					DBusMessage *message, void *user_data)
+{
+	struct connman_technology *technology = user_data;
+	DBusMessage *reply;
+	DBusMessageIter iter;
+
+	reply = dbus_message_new_method_return(message);
+	if (reply == NULL)
+		return NULL;
+
+	dbus_message_iter_init_append(reply, &iter);
+	append_properties(&iter, technology);
 
 	return reply;
+}
+
+void __connman_technology_list_struct(DBusMessageIter *array)
+{
+	GSList *list;
+	DBusMessageIter entry;
+
+	for (list = technology_list; list; list = list->next) {
+		struct connman_technology *technology = list->data;
+
+		if (technology->path == NULL)
+			continue;
+
+		dbus_message_iter_open_container(array, DBUS_TYPE_STRUCT,
+				NULL, &entry);
+		dbus_message_iter_append_basic(&entry, DBUS_TYPE_OBJECT_PATH,
+				&technology->path);
+		append_properties(&entry, technology);
+		dbus_message_iter_close_container(array, &entry);
+	}
+}
+
+static gboolean technology_pending_reply(gpointer user_data)
+{
+	struct connman_technology *technology = user_data;
+	DBusMessage *reply;
+
+	/* Power request timedout, send ETIMEDOUT. */
+	if (technology->pending_reply != NULL) {
+		reply = __connman_error_failed(technology->pending_reply, ETIMEDOUT);
+		if (reply != NULL)
+			g_dbus_send_message(connection, reply);
+
+		dbus_message_unref(technology->pending_reply);
+		technology->pending_reply = NULL;
+		technology->pending_timeout = 0;
+	}
+
+	return FALSE;
+}
+
+static int technology_enable(struct connman_technology *technology,
+		DBusMessage *msg)
+{
+	GSList *list;
+	int err = 0;
+	int ret = -ENODEV;
+	DBusMessage *reply;
+
+	DBG("technology %p enable", technology);
+
+	__sync_synchronize();
+	if (technology->enabled > 0) {
+		err = -EALREADY;
+		goto done;
+	}
+
+	if (technology->pending_reply != NULL) {
+		err = -EBUSY;
+		goto done;
+	}
+
+	if (msg != NULL) {
+		/*
+		 * This is a bit of a trick. When msg is not NULL it means
+		 * thats technology_enable was invoked from the manager API.
+		 * Hence we save the state here.
+		 */
+		technology->enable_persistent = TRUE;
+		save_state(technology);
+	}
+
+	__connman_rfkill_block(technology->type, FALSE);
+
+	/*
+	 * An empty device list means that devices in the technology
+	 * were rfkill blocked. The unblock above will enable the devs.
+	 */
+	if (technology->device_list == NULL) {
+		ret = 0;
+		goto done;
+	}
+
+	for (list = technology->device_list; list; list = list->next) {
+		struct connman_device *device = list->data;
+
+		err = __connman_device_enable(device);
+		/*
+		 * err = 0 : Device was enabled right away.
+		 * If atleast one device gets enabled, we consider
+		 * the technology to be enabled.
+		 */
+		if (err == 0)
+			ret = 0;
+	}
+
+done:
+	if (ret == 0) {
+		if (msg != NULL)
+			g_dbus_send_reply(connection, msg, DBUS_TYPE_INVALID);
+		return ret;
+	}
+
+	if (msg != NULL) {
+		if (err == -EINPROGRESS) {
+			technology->pending_reply = dbus_message_ref(msg);
+			technology->pending_timeout = g_timeout_add_seconds(10,
+					technology_pending_reply, technology);
+		} else {
+			if (err == -EALREADY)
+				reply = __connman_error_already_enabled(msg);
+			else
+				reply = __connman_error_failed(msg, -err);
+			if (reply != NULL)
+				g_dbus_send_message(connection, reply);
+		}
+	}
+
+	return err;
+}
+
+static int technology_disable(struct connman_technology *technology,
+		DBusMessage *msg)
+{
+	GSList *list;
+	int err = 0;
+	int ret = -ENODEV;
+	DBusMessage *reply;
+
+	DBG("technology %p disable", technology);
+
+	__sync_synchronize();
+	if (technology->enabled == 0) {
+		err = -EALREADY;
+		goto done;
+	}
+
+	if (technology->pending_reply != NULL) {
+		err = -EBUSY;
+		goto done;
+	}
+
+	if (technology->tethering == TRUE)
+		set_tethering(technology, FALSE);
+
+	if (msg != NULL) {
+		technology->enable_persistent = FALSE;
+		save_state(technology);
+	}
+
+	__connman_rfkill_block(technology->type, TRUE);
+
+	for (list = technology->device_list; list; list = list->next) {
+		struct connman_device *device = list->data;
+
+		err = __connman_device_disable(device);
+		if (err == 0)
+			ret = 0;
+	}
+
+done:
+	if (ret == 0) {
+		if (msg != NULL)
+			g_dbus_send_reply(connection, msg, DBUS_TYPE_INVALID);
+		return ret;
+	}
+
+	if (msg != NULL) {
+		if (err == -EINPROGRESS) {
+			technology->pending_reply = dbus_message_ref(msg);
+			technology->pending_timeout = g_timeout_add_seconds(10,
+					technology_pending_reply, technology);
+		} else {
+			if (err == -EALREADY)
+				reply = __connman_error_already_disabled(msg);
+			else
+				reply = __connman_error_failed(msg, -err);
+			if (reply != NULL)
+				g_dbus_send_message(connection, reply);
+		}
+	}
+
+	return err;
 }
 
 static DBusMessage *set_property(DBusConnection *conn,
@@ -487,8 +692,15 @@ static DBusMessage *set_property(DBusConnection *conn,
 	if (dbus_message_iter_init(msg, &iter) == FALSE)
 		return __connman_error_invalid_arguments(msg);
 
+	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_STRING)
+		return __connman_error_invalid_arguments(msg);
+
 	dbus_message_iter_get_basic(&iter, &name);
 	dbus_message_iter_next(&iter);
+
+	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_VARIANT)
+		return __connman_error_invalid_arguments(msg);
+
 	dbus_message_iter_recurse(&iter, &value);
 
 	type = dbus_message_iter_get_arg_type(&value);
@@ -532,22 +744,23 @@ static DBusMessage *set_property(DBusConnection *conn,
 			return __connman_error_invalid_arguments(msg);
 
 		technology->tethering_passphrase = g_strdup(str);
+	} else if (g_str_equal(name, "Powered") == TRUE) {
+		connman_bool_t enable;
+
+		if (type != DBUS_TYPE_BOOLEAN)
+			return __connman_error_invalid_arguments(msg);
+
+		dbus_message_iter_get_basic(&value, &enable);
+		if (enable == TRUE)
+			technology_enable(technology, msg);
+		else
+			technology_disable(technology, msg);
+
 	} else
 		return __connman_error_invalid_property(msg);
 
 	return g_dbus_create_reply(msg, DBUS_TYPE_INVALID);
 }
-
-static GDBusMethodTable technology_methods[] = {
-	{ "GetProperties", "",   "a{sv}", get_properties },
-	{ "SetProperty",   "sv", "",      set_property   },
-	{ },
-};
-
-static GDBusSignalTable technology_signals[] = {
-	{ "PropertyChanged", "sv" },
-	{ },
-};
 
 static struct connman_technology *technology_find(enum connman_service_type type)
 {
@@ -565,6 +778,103 @@ static struct connman_technology *technology_find(enum connman_service_type type
 	return NULL;
 }
 
+static void reply_scan_pending(struct connman_technology *technology, int err)
+{
+	DBusMessage *reply;
+
+	DBG("technology %p err %d", technology, err);
+
+	while (technology->scan_pending != NULL) {
+		DBusMessage *msg = technology->scan_pending->data;
+
+		DBG("reply to %s", dbus_message_get_sender(msg));
+
+		if (err == 0)
+			reply = g_dbus_create_reply(msg, DBUS_TYPE_INVALID);
+		else
+			reply = __connman_error_failed(msg, -err);
+		g_dbus_send_message(connection, reply);
+		dbus_message_unref(msg);
+
+		technology->scan_pending =
+			g_slist_delete_link(technology->scan_pending,
+					technology->scan_pending);
+	}
+}
+
+void __connman_technology_scan_started(struct connman_device *device)
+{
+	DBG("device %p", device);
+}
+
+void __connman_technology_scan_stopped(struct connman_device *device)
+{
+	int count = 0;
+	struct connman_technology *technology;
+	enum connman_service_type type;
+	GSList *list;
+
+	type = __connman_device_get_service_type(device);
+	technology = technology_find(type);
+
+	DBG("technology %p device %p", technology, device);
+
+	if (technology == NULL)
+		return;
+
+	for (list = technology->device_list; list != NULL; list = list->next) {
+		struct connman_device *other_device = list->data;
+
+		if (device == other_device)
+			continue;
+
+		if (__connman_device_get_service_type(other_device) != type)
+			continue;
+
+		if (connman_device_get_scanning(other_device) == TRUE)
+			count += 1;
+	}
+
+	if (count == 0)
+		reply_scan_pending(technology, 0);
+}
+
+static DBusMessage *scan(DBusConnection *conn, DBusMessage *msg, void *data)
+{
+	struct connman_technology *technology = data;
+	int err;
+
+	DBG ("technology %p request from %s", technology,
+			dbus_message_get_sender(msg));
+
+	dbus_message_ref(msg);
+	technology->scan_pending =
+		g_slist_prepend(technology->scan_pending, msg);
+
+	err = __connman_device_request_scan(technology->type);
+	if (err < 0)
+		reply_scan_pending(technology, err);
+
+	return NULL;
+}
+
+static const GDBusMethodTable technology_methods[] = {
+	{ GDBUS_DEPRECATED_METHOD("GetProperties",
+			NULL, GDBUS_ARGS({ "properties", "a{sv}" }),
+			get_properties) },
+	{ GDBUS_METHOD("SetProperty",
+			GDBUS_ARGS({ "name", "s" }, { "value", "v" }),
+			NULL, set_property) },
+	{ GDBUS_ASYNC_METHOD("Scan", NULL, NULL, scan) },
+	{ },
+};
+
+static const GDBusSignalTable technology_signals[] = {
+	{ GDBUS_SIGNAL("PropertyChanged",
+			GDBUS_ARGS({ "name", "s" }, { "value", "v" })) },
+	{ },
+};
+
 static struct connman_technology *technology_get(enum connman_service_type type)
 {
 	struct connman_technology *technology;
@@ -580,8 +890,10 @@ static struct connman_technology *technology_get(enum connman_service_type type)
 		return NULL;
 
 	technology = technology_find(type);
-	if (technology != NULL)
+	if (technology != NULL) {
+		__sync_fetch_and_add(&technology->refcount, 1);
 		return technology;
+	}
 
 	/* First check if we have a driver for this technology type */
 	for (list = driver_list; list; list = list->next) {
@@ -609,12 +921,9 @@ static struct connman_technology *technology_get(enum connman_service_type type)
 	technology->path = g_strdup_printf("%s/technology/%s",
 							CONNMAN_PATH, str);
 
-	technology->rfkill_list = g_hash_table_new_full(g_int_hash, g_int_equal,
-							NULL, free_rfkill);
 	technology->device_list = NULL;
 
 	technology->pending_reply = NULL;
-	technology->state = CONNMAN_TECHNOLOGY_STATE_OFFLINE;
 
 	load_state(technology);
 
@@ -627,9 +936,9 @@ static struct connman_technology *technology_get(enum connman_service_type type)
 		return NULL;
 	}
 
-	technology_list = g_slist_append(technology_list, technology);
+	technology_list = g_slist_prepend(technology_list, technology);
 
-	technologies_changed();
+	technology_added_signal(technology);
 
 	technology->driver = driver;
 	err = driver->probe(technology);
@@ -645,8 +954,10 @@ static void technology_put(struct connman_technology *technology)
 {
 	DBG("technology %p", technology);
 
-	if (__sync_fetch_and_sub(&technology->refcount, 1) != 1)
+	if (__sync_sub_and_fetch(&technology->refcount, 1) > 0)
 		return;
+
+	reply_scan_pending(technology, -EINTR);
 
 	if (technology->driver) {
 		technology->driver->remove(technology);
@@ -655,13 +966,12 @@ static void technology_put(struct connman_technology *technology)
 
 	technology_list = g_slist_remove(technology_list, technology);
 
-	technologies_changed();
+	technology_removed_signal(technology);
 
 	g_dbus_unregister_interface(connection, technology->path,
 						CONNMAN_TECHNOLOGY_INTERFACE);
 
 	g_slist_free(technology->device_list);
-	g_hash_table_destroy(technology->rfkill_list);
 
 	g_free(technology->path);
 	g_free(technology->regdom);
@@ -679,7 +989,6 @@ void __connman_technology_add_interface(enum connman_service_type type,
 		return;
 	case CONNMAN_SERVICE_TYPE_ETHERNET:
 	case CONNMAN_SERVICE_TYPE_WIFI:
-	case CONNMAN_SERVICE_TYPE_WIMAX:
 	case CONNMAN_SERVICE_TYPE_BLUETOOTH:
 	case CONNMAN_SERVICE_TYPE_CELLULAR:
 	case CONNMAN_SERVICE_TYPE_GPS:
@@ -688,10 +997,10 @@ void __connman_technology_add_interface(enum connman_service_type type,
 		break;
 	}
 
-	connman_info("Create interface %s [ %s ]", name,
+	connman_info("Adding interface %s [ %s ]", name,
 				__connman_service_type2string(type));
 
-	technology = technology_get(type);
+	technology = technology_find(type);
 
 	if (technology == NULL || technology->driver == NULL
 			|| technology->driver->add_interface == NULL)
@@ -712,7 +1021,6 @@ void __connman_technology_remove_interface(enum connman_service_type type,
 		return;
 	case CONNMAN_SERVICE_TYPE_ETHERNET:
 	case CONNMAN_SERVICE_TYPE_WIFI:
-	case CONNMAN_SERVICE_TYPE_WIMAX:
 	case CONNMAN_SERVICE_TYPE_BLUETOOTH:
 	case CONNMAN_SERVICE_TYPE_CELLULAR:
 	case CONNMAN_SERVICE_TYPE_GPS:
@@ -731,8 +1039,6 @@ void __connman_technology_remove_interface(enum connman_service_type type,
 
 	if (technology->driver->remove_interface)
 		technology->driver->remove_interface(technology, index);
-
-	technology_put(technology);
 }
 
 int __connman_technology_add_device(struct connman_device *device)
@@ -743,19 +1049,35 @@ int __connman_technology_add_device(struct connman_device *device)
 	DBG("device %p", device);
 
 	type = __connman_device_get_service_type(device);
-	__connman_notifier_register(type);
 
 	technology = technology_get(type);
-	if (technology == NULL)
-		return -ENXIO;
+	if (technology == NULL) {
+		/*
+		 * Since no driver can be found for this device at the moment we
+		 * add it to the techless device list.
+		*/
+		techless_device_list = g_slist_prepend(techless_device_list,
+								device);
 
-	if (technology->enable_persistent && !global_offlinemode)
-		__connman_device_enable(device);
+		return -ENXIO;
+	}
+
+	if (technology->enable_persistent && !global_offlinemode) {
+		int err = __connman_device_enable(device);
+		/*
+		 * connman_technology_add_device() calls __connman_device_enable()
+		 * but since the device is already enabled, the calls does not
+		 * propagate through to connman_technology_enabled via
+		 * connman_device_set_powered.
+		 */
+		if (err == -EALREADY)
+			__connman_technology_enabled(type);
+	}
 	/* if technology persistent state is offline */
 	if (!technology->enable_persistent)
 		__connman_device_disable(device);
 
-	technology->device_list = g_slist_append(technology->device_list,
+	technology->device_list = g_slist_prepend(technology->device_list,
 								device);
 
 	return 0;
@@ -769,39 +1091,34 @@ int __connman_technology_remove_device(struct connman_device *device)
 	DBG("device %p", device);
 
 	type = __connman_device_get_service_type(device);
-	__connman_notifier_unregister(type);
 
 	technology = technology_find(type);
-	if (technology == NULL)
+	if (technology == NULL) {
+		techless_device_list = g_slist_remove(techless_device_list,
+								device);
 		return -ENXIO;
+	}
 
 	technology->device_list = g_slist_remove(technology->device_list,
 								device);
-	if (technology->device_list == NULL) {
-		technology->state = CONNMAN_TECHNOLOGY_STATE_OFFLINE;
-		state_changed(technology);
-	}
+	technology_put(technology);
 
 	return 0;
 }
 
-static gboolean technology_pending_reply(gpointer user_data)
+static void powered_changed(struct connman_technology *technology)
 {
-	struct connman_technology *technology = user_data;
-	DBusMessage *reply;
+	connman_bool_t powered;
 
-	/* Power request timedout, send ETIMEDOUT. */
-	if (technology->pending_reply != NULL) {
-		reply = __connman_error_failed(technology->pending_reply, ETIMEDOUT);
-		if (reply != NULL)
-			g_dbus_send_message(connection, reply);
+	__sync_synchronize();
+	if (technology->enabled >0)
+		powered = TRUE;
+	else
+		powered = FALSE;
 
-		dbus_message_unref(technology->pending_reply);
-		technology->pending_reply = NULL;
-		technology->pending_timeout = 0;
-	}
-
-	return FALSE;
+	connman_dbus_property_changed_basic(technology->path,
+			CONNMAN_TECHNOLOGY_INTERFACE, "Powered",
+			DBUS_TYPE_BOOLEAN, &powered);
 }
 
 int __connman_technology_enabled(enum connman_service_type type)
@@ -812,11 +1129,10 @@ int __connman_technology_enabled(enum connman_service_type type)
 	if (technology == NULL)
 		return -ENXIO;
 
-	if (__sync_fetch_and_add(&technology->enabled, 1) == 0) {
-		__connman_notifier_enable(type);
-		technology->state = CONNMAN_TECHNOLOGY_STATE_ENABLED;
-		state_changed(technology);
-	}
+	if (__sync_fetch_and_add(&technology->enabled, 1) != 0)
+		return -EALREADY;
+
+	powered_changed(technology);
 
 	if (technology->pending_reply != NULL) {
 		g_dbus_send_reply(connection, technology->pending_reply, DBUS_TYPE_INVALID);
@@ -827,81 +1143,6 @@ int __connman_technology_enabled(enum connman_service_type type)
 	}
 
 	return 0;
-}
-
-int __connman_technology_enable(enum connman_service_type type, DBusMessage *msg)
-{
-	struct connman_technology *technology;
-	GSList *list;
-	int err = 0;
-	int ret = -ENODEV;
-	DBusMessage *reply;
-
-	DBG("type %d enable", type);
-
-	technology = technology_find(type);
-	if (technology == NULL) {
-		err = -ENXIO;
-		goto done;
-	}
-
-	if (technology->pending_reply != NULL) {
-		err = -EBUSY;
-		goto done;
-	}
-
-	if (msg != NULL) {
-		/*
-		 * This is a bit of a trick. When msg is not NULL it means
-		 * thats technology_enable was invoked from the manager API. Hence we save
-		 * the state here.
-		 */
-		technology->enable_persistent = TRUE;
-		save_state(technology);
-	}
-
-	__connman_rfkill_block(technology->type, FALSE);
-
-	/*
-	 * An empty device list means that devices in the technology
-	 * were rfkill blocked. The unblock above will enable the devs.
-	 */
-	if (technology->device_list == NULL)
-		return 0;
-
-	for (list = technology->device_list; list; list = list->next) {
-		struct connman_device *device = list->data;
-
-		err = __connman_device_enable(device);
-		/*
-		 * err = 0 : Device was enabled right away.
-		 * If atleast one device gets enabled, we consider
-		 * the technology to be enabled.
-		 */
-		if (err == 0)
-			ret = 0;
-	}
-
-done:
-	if (ret == 0) {
-		if (msg != NULL)
-			g_dbus_send_reply(connection, msg, DBUS_TYPE_INVALID);
-		return ret;
-	}
-
-	if (msg != NULL) {
-		if (err == -EINPROGRESS) {
-			technology->pending_reply = dbus_message_ref(msg);
-			technology->pending_timeout = g_timeout_add_seconds(10,
-					technology_pending_reply, technology);
-		} else {
-			reply = __connman_error_failed(msg, -err);
-			if (reply != NULL)
-				g_dbus_send_message(connection, reply);
-		}
-	}
-
-	return err;
 }
 
 int __connman_technology_disabled(enum connman_service_type type)
@@ -912,6 +1153,9 @@ int __connman_technology_disabled(enum connman_service_type type)
 	if (technology == NULL)
 		return -ENXIO;
 
+	if (__sync_fetch_and_sub(&technology->enabled, 1) != 1)
+		return -EINPROGRESS;
+
 	if (technology->pending_reply != NULL) {
 		g_dbus_send_reply(connection, technology->pending_reply, DBUS_TYPE_INVALID);
 		dbus_message_unref(technology->pending_reply);
@@ -920,75 +1164,9 @@ int __connman_technology_disabled(enum connman_service_type type)
 		technology->pending_timeout = 0;
 	}
 
-	if (__sync_fetch_and_sub(&technology->enabled, 1) != 1)
-		return 0;
-
-	__connman_notifier_disable(type);
-	technology->state = CONNMAN_TECHNOLOGY_STATE_OFFLINE;
-	state_changed(technology);
+	powered_changed(technology);
 
 	return 0;
-}
-
-int __connman_technology_disable(enum connman_service_type type, DBusMessage *msg)
-{
-	struct connman_technology *technology;
-	GSList *list;
-	int err = 0;
-	int ret = -ENODEV;
-	DBusMessage *reply;
-
-	DBG("type %d disable", type);
-
-	technology = technology_find(type);
-	if (technology == NULL) {
-		err = -ENXIO;
-		goto done;
-	}
-
-	if (technology->pending_reply != NULL) {
-		err = -EBUSY;
-		goto done;
-	}
-
-	if (technology->tethering == TRUE)
-		set_tethering(technology, FALSE);
-
-	if (msg != NULL) {
-		technology->enable_persistent = FALSE;
-		save_state(technology);
-	}
-
-	__connman_rfkill_block(technology->type, TRUE);
-
-	for (list = technology->device_list; list; list = list->next) {
-		struct connman_device *device = list->data;
-
-		err = __connman_device_disable(device);
-		if (err == 0)
-			ret = 0;
-	}
-
-done:
-	if (ret == 0) {
-		if (msg != NULL)
-			g_dbus_send_reply(connection, msg, DBUS_TYPE_INVALID);
-		return ret;
-	}
-
-	if (msg != NULL) {
-		if (err == -EINPROGRESS) {
-			technology->pending_reply = dbus_message_ref(msg);
-			technology->pending_timeout = g_timeout_add_seconds(10,
-					technology_pending_reply, technology);
-		} else {
-			reply = __connman_error_failed(msg, -err);
-			if (reply != NULL)
-				g_dbus_send_message(connection, reply);
-		}
-	}
-
-	return err;
 }
 
 int __connman_technology_set_offlinemode(connman_bool_t offlinemode)
@@ -1017,10 +1195,10 @@ int __connman_technology_set_offlinemode(connman_bool_t offlinemode)
 		struct connman_technology *technology = list->data;
 
 		if (offlinemode)
-			err = __connman_technology_disable(technology->type, NULL);
+			err = technology_disable(technology, NULL);
 
 		if (!offlinemode && technology->enable_persistent)
-			err = __connman_technology_enable(technology->type, NULL);
+			err = technology_enable(technology, NULL);
 	}
 
 	if (err == 0 || err == -EINPROGRESS || err == -EALREADY) {
@@ -1030,6 +1208,24 @@ int __connman_technology_set_offlinemode(connman_bool_t offlinemode)
 		global_offlinemode = connman_technology_load_offlinemode();
 
 	return err;
+}
+
+void __connman_technology_set_connected(enum connman_service_type type,
+		connman_bool_t connected)
+{
+	struct connman_technology *technology;
+
+	technology = technology_find(type);
+	if (technology == NULL)
+		return;
+
+	DBG("technology %p connected %d", technology, connected);
+
+	technology->connected = connected;
+
+	connman_dbus_property_changed_basic(technology->path,
+			CONNMAN_TECHNOLOGY_INTERFACE, "Connected",
+			DBUS_TYPE_BOOLEAN, &connected);
 }
 
 int __connman_technology_add_rfkill(unsigned int index,
@@ -1043,22 +1239,26 @@ int __connman_technology_add_rfkill(unsigned int index,
 	DBG("index %u type %d soft %u hard %u", index, type,
 							softblock, hardblock);
 
-	technology = technology_get(type);
-	if (technology == NULL)
-		return -ENXIO;
+	rfkill = g_hash_table_lookup(rfkill_list, GINT_TO_POINTER(index));
+	if (rfkill != NULL)
+		goto done;
 
 	rfkill = g_try_new0(struct connman_rfkill, 1);
 	if (rfkill == NULL)
 		return -ENOMEM;
-
-	__connman_notifier_register(type);
 
 	rfkill->index = index;
 	rfkill->type = type;
 	rfkill->softblock = softblock;
 	rfkill->hardblock = hardblock;
 
-	g_hash_table_replace(technology->rfkill_list, &rfkill->index, rfkill);
+	g_hash_table_insert(rfkill_list, GINT_TO_POINTER(index), rfkill);
+
+done:
+	technology = technology_get(type);
+	/* If there is no driver for this type, ignore it. */
+	if (technology == NULL)
+		return -ENXIO;
 
 	if (hardblock) {
 		DBG("%s is switched off.", get_name(type));
@@ -1093,16 +1293,12 @@ int __connman_technology_update_rfkill(unsigned int index,
 
 	DBG("index %u soft %u hard %u", index, softblock, hardblock);
 
-	technology = technology_find(type);
-	if (technology == NULL)
-		return -ENXIO;
-
-	rfkill = g_hash_table_lookup(technology->rfkill_list, &index);
+	rfkill = g_hash_table_lookup(rfkill_list, GINT_TO_POINTER(index));
 	if (rfkill == NULL)
 		return -ENXIO;
 
 	if (rfkill->softblock == softblock &&
-		rfkill->hardblock == hardblock)
+				rfkill->hardblock == hardblock)
 		return 0;
 
 	rfkill->softblock = softblock;
@@ -1112,6 +1308,11 @@ int __connman_technology_update_rfkill(unsigned int index,
 		DBG("%s is switched off.", get_name(type));
 		return 0;
 	}
+
+	technology = technology_find(type);
+	/* If there is no driver for this type, ignore it. */
+	if (technology == NULL)
+		return -ENXIO;
 
 	if (!global_offlinemode) {
 		if (technology->enable_persistent && softblock)
@@ -1131,15 +1332,15 @@ int __connman_technology_remove_rfkill(unsigned int index,
 
 	DBG("index %u", index);
 
-	technology = technology_find(type);
-	if (technology == NULL)
-		return -ENXIO;
-
-	rfkill = g_hash_table_lookup(technology->rfkill_list, &index);
+	rfkill = g_hash_table_lookup(rfkill_list, GINT_TO_POINTER(index));
 	if (rfkill == NULL)
 		return -ENXIO;
 
-	g_hash_table_remove(technology->rfkill_list, &index);
+	g_hash_table_remove(rfkill_list, GINT_TO_POINTER(index));
+
+	technology = technology_find(type);
+	if (technology == NULL)
+		return -ENXIO;
 
 	technology_put(technology);
 
@@ -1152,7 +1353,13 @@ int __connman_technology_init(void)
 
 	connection = connman_dbus_get_connection();
 
+	rfkill_list = g_hash_table_new_full(g_direct_hash, g_direct_equal,
+							NULL, free_rfkill);
+
 	global_offlinemode = connman_technology_load_offlinemode();
+
+	/* This will create settings file if it is missing */
+	connman_technology_save_offlinemode();
 
 	return 0;
 }
@@ -1160,6 +1367,8 @@ int __connman_technology_init(void)
 void __connman_technology_cleanup(void)
 {
 	DBG("");
+
+	g_hash_table_destroy(rfkill_list);
 
 	dbus_connection_unref(connection);
 }

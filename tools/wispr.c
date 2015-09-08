@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -31,6 +31,7 @@
 #include <string.h>
 #include <signal.h>
 #include <termios.h>
+#include <netdb.h>
 
 #include <gweb/gweb.h>
 
@@ -289,7 +290,7 @@ static void parser_callback(const char *str, gpointer user_data)
 
 	result = g_markup_parse_context_parse(context, str, strlen(str), NULL);
 	if (result == TRUE)
-		result = g_markup_parse_context_end_parse(context, NULL);
+		g_markup_parse_context_end_parse(context, NULL);
 
 	g_markup_parse_context_free(context);
 }
@@ -475,6 +476,24 @@ static gboolean wispr_input(const guint8 **data, gsize *length,
 	return FALSE;
 }
 
+static gboolean wispr_route(const char *addr, int ai_family, int if_index,
+		gpointer user_data)
+{
+	char *family = "unknown";
+
+	if (ai_family == AF_INET)
+		family = "IPv4";
+	else if (ai_family == AF_INET6)
+		family = "IPv6";
+
+	printf("Route request: %s %s index %d\n", family, addr, if_index);
+
+	if (ai_family != AF_INET && ai_family != AF_INET6)
+		return FALSE;
+
+	return TRUE;
+}
+
 static gboolean wispr_result(GWebResult *result, gpointer user_data)
 {
 	struct wispr_session *wispr = user_data;
@@ -515,7 +534,7 @@ static gboolean wispr_result(GWebResult *result, gpointer user_data)
 		printf("\n");
 
 		wispr->request = g_web_request_get(wispr->web, redirect,
-							wispr_result, wispr);
+				wispr_result, wispr_route, wispr);
 
 		return FALSE;
 	}
@@ -575,7 +594,7 @@ static gboolean wispr_result(GWebResult *result, gpointer user_data)
 		printf("\n");
 
 		wispr->request = g_web_request_get(wispr->web, redirect,
-							wispr_result, wispr);
+				wispr_result, NULL, wispr);
 
 		return FALSE;
 	}
@@ -678,7 +697,7 @@ int main(int argc, char *argv[])
 						parser_callback, &wispr);
 
 	wispr.request = g_web_request_get(wispr.web, option_url,
-							wispr_result, &wispr);
+			wispr_result, wispr_route, &wispr);
 
 	if (wispr.request == 0) {
 		fprintf(stderr, "Failed to start request\n");

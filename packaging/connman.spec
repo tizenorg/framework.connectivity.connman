@@ -1,92 +1,108 @@
-#sbs-git:pkgs/c/connman connman 0.78.4
-
-Name:       connman
-Summary:    Connection Manager
-Version:    0.78.4_90
-Release:    1
-Group:      System/Network
-License:    GNU General Public License version 2
-URL:        http://connman.net
-Source0:    %{name}-%{version}.tar.gz
-BuildRequires:  pkgconfig(glib-2.0)
-BuildRequires:  pkgconfig(dbus-1)
-BuildRequires:  pkgconfig(xtables)
-BuildRequires:  pkgconfig(libiptc)
+Name:		connman
+Summary:	Connection Manager
+Version:	1.3.313
+Release:	1
+Group:		System/Network
+License:	GPL-2.0+
+URL:		http://connman.net
+Source0:	%{name}-%{version}.tar.gz
+BuildRequires:	pkgconfig(dbus-1)
+BuildRequires:	pkgconfig(glib-2.0)
+BuildRequires:	pkgconfig(xtables)
+BuildRequires:	pkgconfig(libsmack)
+BuildRequires:	model-build-features
+Requires:		systemd
+Requires(post):		systemd
+Requires(preun):	systemd
+Requires(postun):	systemd
 
 %description
 Connection Manager provides a daemon for managing Internet connections
 within embedded devices running the Linux operating system.
-
-%package test
-Summary:        Test Scripts for Connection Manager
-Group:          Development/Tools
-Requires:       %{name} = %{version}
-Requires:       dbus-python
-Requires:       pygobject
-Requires:       python-xml
-
-%description test
-Scripts for testing Connman and its functionality
 
 %prep
 %setup -q
 
 
 %build
+CFLAGS+=" -Wall -Werror -O2 -D_FORTIFY_SOURCE=2"
 
-./autogen.sh
+./bootstrap
 
-./configure --prefix=/usr \
+%configure --prefix=/usr \
+            --sysconfdir=/etc \
             --localstatedir=/var \
             --enable-tizen-ext \
-            --enable-test \
+            --enable-tizen-rtc-timer \
+            --enable-threads \
+            --enable-ethernet \
+            --enable-wifi=builtin \
+            --enable-bluetooth \
+            --enable-telephony=builtin \
+            --enable-loopback \
+            --disable-client \
+            --disable-ofono \
+            --disable-tools \
+            --disable-wispr \
+            --disable-linklocaladdr \
+            --with-systemdunitdir=%{_libdir}/systemd/system \
+            --enable-pie
 
+make %{?_smp_mflags}
 
-make %{?jobs:-j%jobs}
 
 %install
-rm -rf %{buildroot}
 %make_install
 
-mkdir -p %{buildroot}/var/lib/connman
-cp resources/var/lib/connman/settings %{buildroot}/var/lib/connman/settings
-mkdir -p %{buildroot}/usr/share/dbus-1/services
-cp resources/usr/share/dbus-1/services/net.connman.service %{buildroot}/usr/share/dbus-1/services/net.connman.service
-mkdir -p %{buildroot}/usr/etc/connman
-cp src/main.conf %{buildroot}/usr/etc/connman/main.conf
-mkdir -p %{buildroot}/etc/rc.d/init.d
-cp resources/etc/rc.d/init.d/connman %{buildroot}/etc/rc.d/init.d/connman
-mkdir -p %{buildroot}/etc/rc.d/rc3.d
-ln -s ../init.d/connman %{buildroot}/etc/rc.d/rc3.d/S61connman
-mkdir -p %{buildroot}/etc/rc.d/rc5.d
-ln -s ../init.d/connman %{buildroot}/etc/rc.d/rc5.d/S61connman
+#Systemd service file
+mkdir -p %{buildroot}%{_libdir}/systemd/system/
+cp src/connman.service %{buildroot}%{_libdir}/systemd/system/connman.service
+mkdir -p %{buildroot}%{_libdir}/systemd/system/multi-user.target.wants/
+ln -s ../connman.service %{buildroot}%{_libdir}/systemd/system/multi-user.target.wants/connman.service
 
-rm -rf %{buildroot}/usr/include/
-rm -rf %{buildroot}/usr/lib/pkgconfig/
-rm %{buildroot}/etc/dbus-1/system.d/*.conf
+mkdir -p %{buildroot}%{_localstatedir}/lib/connman
+cp resources/var/lib/connman/settings %{buildroot}%{_localstatedir}/lib/connman/settings
+mkdir -p %{buildroot}%{_datadir}/dbus-1/services
+cp resources/usr/share/dbus-1/services/net.connman.service %{buildroot}%{_datadir}/dbus-1/services/net.connman.service
+mkdir -p %{buildroot}%{_sysconfdir}/connman
+cp src/main.conf %{buildroot}%{_sysconfdir}/connman/main.conf
 
-mkdir -p %{buildroot}/usr/etc/dbus-1/system.d/
-cp src/connman.conf %{buildroot}/usr/etc/dbus-1/system.d/
+rm -rf %{buildroot}%{_includedir}
+rm -rf %{buildroot}%{_libdir}/pkgconfig/*.pc
+rm %{buildroot}%{_sysconfdir}/dbus-1/system.d/*.conf
 
+mkdir -p %{buildroot}%{_sbindir}/
+cp resources/usr/sbin/connman.service %{buildroot}%{_sbindir}/connman.service
+
+#DBus DAC (manifest enables DBus SMACK)
+#mkdir -p %{buildroot}%{_sysconfdir}/dbus-1/system.d/
+#cp src/connman.conf %{buildroot}%{_sysconfdir}/dbus-1/system.d/
+
+#License
+mkdir -p %{buildroot}%{_datadir}/license
+cp COPYING %{buildroot}%{_datadir}/license/connman
 
 %post
-#Resource
-chmod 600 /var/lib/connman/settings
+#systemctl daemon-reload
+#systemctl restart connman.service
+
+%preun
+#systemctl stop connman.service
+
+%postun
+#systemctl daemon-reload
 
 
 %files
-%defattr(-,root,root,-)
-#%doc AUTHORS COPYING INSTALL ChangeLog NEWS README
-%{_sbindir}/*
-%{_var}/lib/connman/settings
-%{_libdir}/connman/plugins/*.so
-%{_datadir}/dbus-1/services/*
-%{_prefix}/etc/dbus-1/system.d/*
-%{_prefix}/etc/connman/main.conf
-%{_sysconfdir}/rc.d/init.d/connman
-%{_sysconfdir}/rc.d/rc3.d/S61connman
-%{_sysconfdir}/rc.d/rc5.d/S61connman
-
-%files test
-%{_libdir}/%{name}/test/*
-
+%manifest connman.manifest
+%attr(500,root,root) %{_sbindir}/*
+%attr(600,root,root) %{_localstatedir}/lib/connman/settings
+#All of builtin plugins
+#%{_libdir}/connman/plugins/*.so
+%attr(644,root,root) %{_datadir}/dbus-1/services/*
+#DBus DAC
+#%attr(644,root,root) %{_sysconfdir}/dbus-1/system.d/*
+%attr(644,root,root) %{_sysconfdir}/connman/main.conf
+%attr(644,root,root) %{_libdir}/systemd/system/connman.service
+%attr(644,root,root) %{_libdir}/systemd/system/multi-user.target.wants/connman.service
+%{_datadir}/license/connman

@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -56,7 +56,6 @@ static void detect_newlink(unsigned short type, int index,
 	switch (devtype) {
 	case CONNMAN_DEVICE_TYPE_UNKNOWN:
 	case CONNMAN_DEVICE_TYPE_VENDOR:
-	case CONNMAN_DEVICE_TYPE_WIMAX:
 	case CONNMAN_DEVICE_TYPE_BLUETOOTH:
 	case CONNMAN_DEVICE_TYPE_CELLULAR:
 	case CONNMAN_DEVICE_TYPE_GPS:
@@ -68,8 +67,15 @@ static void detect_newlink(unsigned short type, int index,
 	}
 
 	device = find_device(index);
+#if defined TIZEN_EXT
+	if (device != NULL) {
+		connman_inet_update_device_ident(device);
+		return;
+	}
+#else
 	if (device != NULL)
 		return;
+#endif
 
 	device = connman_inet_create_device(index);
 	if (device == NULL)
@@ -80,7 +86,7 @@ static void detect_newlink(unsigned short type, int index,
 		return;
 	}
 
-	device_list = g_slist_append(device_list, device);
+	device_list = g_slist_prepend(device_list, device);
 }
 
 static void detect_dellink(unsigned short type, int index,

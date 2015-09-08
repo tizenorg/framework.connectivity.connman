@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -40,7 +40,7 @@ struct connman_dhcp {
 	dhcp_cb callback;
 
 	char **nameservers;
-	char *timeserver;
+	char **timeservers;
 	char *pac;
 
 	GDHCPClient *dhcp_client;
@@ -51,11 +51,11 @@ static GHashTable *network_table;
 static void dhcp_free(struct connman_dhcp *dhcp)
 {
 	g_strfreev(dhcp->nameservers);
-	g_free(dhcp->timeserver);
+	g_strfreev(dhcp->timeservers);
 	g_free(dhcp->pac);
 
 	dhcp->nameservers = NULL;
-	dhcp->timeserver = NULL;
+	dhcp->timeservers = NULL;
 	dhcp->pac = NULL;
 }
 
@@ -82,7 +82,7 @@ static void dhcp_invalidate(struct connman_dhcp *dhcp, connman_bool_t callback)
 	if (dhcp == NULL)
 		return;
 
-	service = __connman_service_lookup_from_network(dhcp->network);
+	service = connman_service_lookup_from_network(dhcp->network);
 	if (service == NULL)
 		goto out;
 
@@ -94,7 +94,13 @@ static void dhcp_invalidate(struct connman_dhcp *dhcp, connman_bool_t callback)
 
 	__connman_service_set_domainname(service, NULL);
 	__connman_service_set_pac(service, NULL);
-	__connman_service_timeserver_remove(service, dhcp->timeserver);
+
+	if (dhcp->timeservers != NULL) {
+		for (i = 0; dhcp->timeservers[i] != NULL; i++) {
+			__connman_service_timeserver_remove(service,
+							dhcp->timeservers[i]);
+		}
+	}
 
 	if (dhcp->nameservers != NULL) {
 		for (i = 0; dhcp->nameservers[i] != NULL; i++) {
@@ -181,7 +187,7 @@ static void lease_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 	char *address, *netmask = NULL, *gateway = NULL;
 	const char *c_address, *c_gateway;
 	char *domainname = NULL, *hostname = NULL;
-	char **nameservers, *timeserver = NULL, *pac = NULL;
+	char **nameservers, **timeservers, *pac = NULL;
 	int ns_entries;
 	struct connman_ipconfig *ipconfig;
 	struct connman_service *service;
@@ -191,7 +197,7 @@ static void lease_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 
 	DBG("Lease available");
 
-	service = __connman_service_lookup_from_network(dhcp->network);
+	service = connman_service_lookup_from_network(dhcp->network);
 	if (service == NULL) {
 		connman_error("Can not lookup service");
 		return;
@@ -238,8 +244,7 @@ static void lease_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 		ip_change = FALSE;
 
 	option = g_dhcp_client_get_option(dhcp_client, G_DHCP_DNS_SERVER);
-	for (ns_entries = 0, list = option; list; list = list->next)
-		ns_entries += 1;
+	ns_entries = g_list_length(option);
 	nameservers = g_try_new0(char *, ns_entries + 1);
 	if (nameservers != NULL) {
 		for (i = 0, list = option; list; list = list->next, i++)
@@ -256,14 +261,19 @@ static void lease_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 		hostname = g_strdup(option->data);
 
 	option = g_dhcp_client_get_option(dhcp_client, G_DHCP_NTP_SERVER);
-	if (option != NULL)
-		timeserver = g_strdup(option->data);
+	ns_entries = g_list_length(option);
+	timeservers = g_try_new0(char *, ns_entries + 1);
+	if (timeservers != NULL) {
+		for (i = 0, list = option; list; list = list->next, i++)
+			timeservers[i] = g_strdup(list->data);
+		timeservers[ns_entries] = NULL;
+	}
 
 	option = g_dhcp_client_get_option(dhcp_client, 252);
 	if (option != NULL)
 		pac = g_strdup(option->data);
 
-	connman_ipconfig_set_method(ipconfig, CONNMAN_IPCONFIG_METHOD_DHCP);
+	__connman_ipconfig_set_method(ipconfig, CONNMAN_IPCONFIG_METHOD_DHCP);
 
 	if (ip_change == TRUE) {
 		__connman_ipconfig_set_local(ipconfig, address);
@@ -282,7 +292,8 @@ static void lease_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 
 		dhcp->nameservers = nameservers;
 
-		for (i = 0; dhcp->nameservers[i] != NULL; i++) {
+		for (i = 0; dhcp->nameservers != NULL &&
+					dhcp->nameservers[i] != NULL; i++) {
 			__connman_service_nameserver_append(service,
 						dhcp->nameservers[i], FALSE);
 		}
@@ -290,18 +301,24 @@ static void lease_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 		g_strfreev(nameservers);
 	}
 
-	if (g_strcmp0(timeserver, dhcp->timeserver) != 0) {
-		if (dhcp->timeserver != NULL) {
-			__connman_service_timeserver_remove(service,
-							dhcp->timeserver);
-			g_free(dhcp->timeserver);
+	if (compare_string_arrays(timeservers, dhcp->timeservers) == FALSE) {
+		if (dhcp->timeservers != NULL) {
+			for (i = 0; dhcp->timeservers[i] != NULL; i++) {
+				__connman_service_timeserver_remove(service,
+							dhcp->timeservers[i]);
+			}
+			g_strfreev(dhcp->timeservers);
 		}
 
-		dhcp->timeserver = timeserver;
+		dhcp->timeservers = timeservers;
 
-		if (dhcp->timeserver != NULL)
+		for (i = 0; dhcp->timeservers != NULL &&
+					 dhcp->timeservers[i] != NULL; i++) {
 			__connman_service_timeserver_append(service,
-							dhcp->timeserver);
+							dhcp->timeservers[i]);
+		}
+	} else {
+		g_strfreev(timeservers);
 	}
 
 	if (g_strcmp0(pac, dhcp->pac) != 0) {
@@ -322,7 +339,10 @@ static void lease_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 	if (ip_change == TRUE)
 		dhcp_valid(dhcp);
 
+#if !defined TIZEN_EXT
+	/* Temporarily disable 6to4 */
 	__connman_6to4_probe(service);
+#endif
 
 	g_free(address);
 	g_free(netmask);
@@ -334,36 +354,27 @@ static void lease_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 static void ipv4ll_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 {
 	struct connman_dhcp *dhcp = user_data;
+#if !defined TIZEN_EXT
 	char *address, *netmask;
 	struct connman_service *service;
 	struct connman_ipconfig *ipconfig;
 	unsigned char prefixlen;
+#endif
 
 	DBG("IPV4LL available");
 
 #if defined TIZEN_EXT
 	/*
 	 * Description: When DHCP is failed,
-	 *              most of naive users cannot understand auto-generated IP
-	 *              (IPV4 link local) and serious troubles to make Internet connection.
+	 *       most of normal users cannot understand auto-generated IP
+	 *      (IPV4 link local) and serious troubles to make Internet connection.
 	 */
 	dhcp_invalidate(dhcp, TRUE);
 
-	service = __connman_service_lookup_from_network(dhcp->network);
-	if (service == NULL)
-		return;
-
-	__connman_service_ipconfig_indicate_state(service,
-			CONNMAN_SERVICE_STATE_IDLE,
-			CONNMAN_IPCONFIG_TYPE_IPV4);
-	__connman_service_ipconfig_indicate_state(service,
-			CONNMAN_SERVICE_STATE_IDLE,
-			CONNMAN_IPCONFIG_TYPE_IPV6);
-
-	return;
-#endif
-
-	service = __connman_service_lookup_from_network(dhcp->network);
+	connman_network_set_error(dhcp->network,
+				CONNMAN_NETWORK_ERROR_DHCP_FAIL);
+#else
+	service = connman_service_lookup_from_network(dhcp->network);
 	if (service == NULL)
 		return;
 
@@ -376,7 +387,7 @@ static void ipv4ll_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 
 	prefixlen = __connman_ipconfig_netmask_prefix_len(netmask);
 
-	connman_ipconfig_set_method(ipconfig, CONNMAN_IPCONFIG_METHOD_DHCP);
+	__connman_ipconfig_set_method(ipconfig, CONNMAN_IPCONFIG_METHOD_DHCP);
 	__connman_ipconfig_set_local(ipconfig, address);
 	__connman_ipconfig_set_prefixlen(ipconfig, prefixlen);
 	__connman_ipconfig_set_gateway(ipconfig, NULL);
@@ -385,6 +396,7 @@ static void ipv4ll_available_cb(GDHCPClient *dhcp_client, gpointer user_data)
 
 	g_free(address);
 	g_free(netmask);
+#endif
 }
 
 static void dhcp_debug(const char *str, void *data)
@@ -414,6 +426,8 @@ static int dhcp_request(struct connman_dhcp *dhcp)
 
 	if (getenv("CONNMAN_DHCP_DEBUG"))
 		g_dhcp_client_set_debug(dhcp_client, dhcp_debug, "DHCP");
+
+	g_dhcp_client_set_id(dhcp_client);
 
 	hostname = connman_utsname_get_hostname();
 	if (hostname != NULL)
@@ -446,7 +460,7 @@ static int dhcp_request(struct connman_dhcp *dhcp)
 
 	dhcp->dhcp_client = dhcp_client;
 
-	service = __connman_service_lookup_from_network(dhcp->network);
+	service = connman_service_lookup_from_network(dhcp->network);
 	ipconfig = __connman_service_get_ip4config(service);
 
 #if defined TIZEN_EXT
@@ -469,8 +483,23 @@ static int dhcp_release(struct connman_dhcp *dhcp)
 	if (dhcp->dhcp_client == NULL)
 		return 0;
 
+#if !defined TIZEN_EXT
 	g_dhcp_client_stop(dhcp->dhcp_client);
+#endif
 	g_dhcp_client_unref(dhcp->dhcp_client);
+
+#if defined TIZEN_EXT
+	if (connman_setting_get_bool("WiFiDHCPRelease") == TRUE) {
+		struct connman_service *service =
+				connman_service_lookup_from_network(dhcp->network);
+
+		struct connman_ipconfig *ipconfig =
+				__connman_service_get_ip4config(service);
+
+		__connman_ipconfig_set_dhcp_address(ipconfig, NULL);
+		__connman_service_save(service);
+	}
+#endif
 
 	dhcp->dhcp_client = NULL;
 
@@ -483,6 +512,10 @@ static void remove_network(gpointer user_data)
 
 	DBG("dhcp %p", dhcp);
 
+#if defined TIZEN_EXT
+	if (dhcp->dhcp_client != NULL)
+		g_dhcp_client_stop(dhcp->dhcp_client);
+#endif
 	dhcp_invalidate(dhcp, FALSE);
 	dhcp_release(dhcp);
 

@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -240,7 +240,7 @@ int connman_task_set_notify(struct connman_task *task, const char *member,
 	notify->func = function;
 	notify->data = user_data;
 
-	g_hash_table_insert(task->notify, g_strdup(member), notify);
+	g_hash_table_replace(task->notify, g_strdup(member), notify);
 
 	return 0;
 }
@@ -408,7 +408,7 @@ int connman_task_stop(struct connman_task *task)
 	return 0;
 }
 
-static DBusHandlerResult task_filter(DBusConnection *connection,
+static DBusHandlerResult task_filter(DBusConnection *conn,
 					DBusMessage *message, void *user_data)
 {
 	struct connman_task *task;
@@ -452,7 +452,7 @@ send_reply:
 	}
 
 	if (reply != NULL) {
-		dbus_connection_send(connection, reply, NULL);
+		dbus_connection_send(conn, reply, NULL);
 
 		dbus_message_unref(reply);
 	}

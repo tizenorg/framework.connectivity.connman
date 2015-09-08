@@ -2,7 +2,7 @@
  *
  *  Resolver library with GLib integration
  *
- *  Copyright (C) 2009-2010  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2009-2012  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -79,6 +79,7 @@ struct resolv_lookup {
 struct resolv_query {
 	GResolv *resolv;
 
+	int nr_ns;
 	guint timeout;
 
 	uint16_t msgid;
@@ -115,24 +116,34 @@ struct _GResolv {
 	gpointer debug_data;
 };
 
-static inline void debug(GResolv *resolv, const char *format, ...)
+#define debug(resolv, format, arg...)				\
+	_debug(resolv, __FILE__, __func__, format, ## arg)
+
+static void _debug(GResolv *resolv, const char *file, const char *caller,
+						const char *format, ...)
 {
 	char str[256];
 	va_list ap;
+	int len;
 
 	if (resolv->debug_func == NULL)
 		return;
 
 	va_start(ap, format);
 
-	if (vsnprintf(str, sizeof(str), format, ap) > 0)
-		resolv->debug_func(str, resolv->debug_data);
+	if ((len = snprintf(str, sizeof(str), "%s:%s() resolv %p ",
+						file, caller, resolv)) > 0) {
+		if (vsnprintf(str + len, sizeof(str) - len, format, ap) > 0)
+			resolv->debug_func(str, resolv->debug_data);
+	}
 
 	va_end(ap);
 }
 
 static void destroy_query(struct resolv_query *query)
 {
+	debug(query->resolv, "query %p timeout %d", query, query->timeout);
+
 	if (query->timeout > 0)
 		g_source_remove(query->timeout);
 
@@ -141,6 +152,9 @@ static void destroy_query(struct resolv_query *query)
 
 static void destroy_lookup(struct resolv_lookup *lookup)
 {
+	debug(lookup->resolv, "lookup %p id %d ipv4 %p ipv6 %p",
+		lookup, lookup->id, lookup->ipv4_query, lookup->ipv6_query);
+
 	if (lookup->ipv4_query != NULL) {
 		g_queue_remove(lookup->resolv->query_queue,
 						lookup->ipv4_query);
@@ -458,6 +472,8 @@ static void sort_and_return_results(struct resolv_lookup *lookup)
 	char buf[INET6_ADDRSTRLEN + 1];
 	GResolvResultStatus status;
 	char **results = g_try_new0(char *, lookup->nr_results + 1);
+	GResolvResultFunc result_func = lookup->result_func;
+	void *result_data = lookup->result_data;
 	int i, n = 0;
 
 	if (!results)
@@ -481,21 +497,30 @@ static void sort_and_return_results(struct resolv_lookup *lookup)
 		} else
 			continue;
 
-		results[n++] = strdup(buf);
+		results[n++] = g_strdup(buf);
 	}
 
 	results[n++] = NULL;
 
-	status = lookup->ipv4_status;
-
-	if (status == G_RESOLV_RESULT_STATUS_SUCCESS)
+	if (lookup->resolv->result_family == AF_INET)
+		status = lookup->ipv4_status;
+	else if (lookup->resolv->result_family == AF_INET6)
 		status = lookup->ipv6_status;
+	else {
+		if (lookup->ipv6_status == G_RESOLV_RESULT_STATUS_SUCCESS)
+			status = lookup->ipv6_status;
+		else
+			status = lookup->ipv4_status;
+	}
 
-	lookup->result_func(status, results, lookup->result_data);
+	debug(lookup->resolv, "lookup %p received %d results", lookup, n);
 
-	g_strfreev(results);
 	g_queue_remove(lookup->resolv->lookup_queue, lookup);
 	destroy_lookup(lookup);
+
+	result_func(status, results, result_data);
+
+	g_strfreev(results);
 }
 
 static gboolean query_timeout(gpointer user_data)
@@ -514,11 +539,11 @@ static gboolean query_timeout(gpointer user_data)
 		lookup->ipv6_query = NULL;
 	}
 
-	if (lookup->ipv4_query == NULL && lookup->ipv4_query == NULL)
-		sort_and_return_results(lookup);
-
-	destroy_query(query);
 	g_queue_remove(resolv->query_queue, query);
+	destroy_query(query);
+
+	if (lookup->ipv4_query == NULL && lookup->ipv6_query == NULL)
+		sort_and_return_results(lookup);
 
 	return FALSE;
 }
@@ -531,8 +556,10 @@ static void free_nameserver(struct resolv_nameserver *nameserver)
 	if (nameserver->udp_watch > 0)
 		g_source_remove(nameserver->udp_watch);
 
-	if (nameserver->udp_channel != NULL)
+	if (nameserver->udp_channel != NULL) {
+		g_io_channel_shutdown(nameserver->udp_channel, TRUE, NULL);
 		g_io_channel_unref(nameserver->udp_channel);
+	}
 
 	g_free(nameserver->address);
 	g_free(nameserver);
@@ -553,12 +580,13 @@ static void flush_nameservers(GResolv *resolv)
 static int send_query(GResolv *resolv, const unsigned char *buf, int len)
 {
 	GList *list;
+	int nr_ns;
 
 	if (resolv->nameserver_list == NULL)
 		return -ENOENT;
 
-	for (list = g_list_first(resolv->nameserver_list);
-					list; list = g_list_next(list)) {
+	for (list = g_list_first(resolv->nameserver_list), nr_ns = 0;
+				list; list = g_list_next(list), nr_ns++) {
 		struct resolv_nameserver *nameserver = list->data;
 		int sk, sent;
 
@@ -572,7 +600,7 @@ static int send_query(GResolv *resolv, const unsigned char *buf, int len)
 			continue;
 	}
 
-	return 0;
+	return nr_ns;
 }
 
 static gint compare_lookup_id(gconstpointer a, gconstpointer b)
@@ -607,8 +635,10 @@ static void add_result(struct resolv_lookup *lookup, int family,
 							const void *data)
 {
 	int n = lookup->nr_results++;
-	lookup->results = g_realloc(lookup->results,
+	lookup->results = g_try_realloc(lookup->results,
 					sizeof(struct sort_result) * (n + 1));
+	if (lookup->results == NULL)
+		return;
 
 	memset(&lookup->results[n], 0, sizeof(struct sort_result));
 
@@ -635,7 +665,17 @@ static void parse_response(struct resolv_nameserver *nameserver,
 
 	debug(resolv, "response from %s", nameserver->address);
 
+#if defined TIZEN_EXT
+	if (-1 == ns_initparse(buf, len, &msg))
+		return;
+#else
 	ns_initparse(buf, len, &msg);
+#endif
+
+	list = g_queue_find_custom(resolv->query_queue,
+			GUINT_TO_POINTER(ns_msg_id(msg)), compare_query_msgid);
+	if (!list)
+		return;
 
 	rcode = ns_msg_getflag(msg, ns_f_rcode);
 	count = ns_msg_count(msg, ns_s_an);
@@ -644,22 +684,22 @@ static void parse_response(struct resolv_nameserver *nameserver,
 					ns_msg_id(msg), rcode, count);
 
 	switch (rcode) {
-	case 0:
+	case ns_r_noerror:
 		status = G_RESOLV_RESULT_STATUS_SUCCESS;
 		break;
-	case 1:
+	case ns_r_formerr:
 		status = G_RESOLV_RESULT_STATUS_FORMAT_ERROR;
 		break;
-	case 2:
+	case ns_r_servfail:
 		status = G_RESOLV_RESULT_STATUS_SERVER_FAILURE;
 		break;
-	case 3:
+	case ns_r_nxdomain:
 		status = G_RESOLV_RESULT_STATUS_NAME_ERROR;
 		break;
-	case 4:
+	case ns_r_notimpl:
 		status = G_RESOLV_RESULT_STATUS_NOT_IMPLEMENTED;
 		break;
-	case 5:
+	case ns_r_refused:
 		status = G_RESOLV_RESULT_STATUS_REFUSED;
 		break;
 	default:
@@ -667,24 +707,23 @@ static void parse_response(struct resolv_nameserver *nameserver,
 		break;
 	}
 
-	list = g_queue_find_custom(resolv->query_queue,
-			GUINT_TO_POINTER(ns_msg_id(msg)), compare_query_msgid);
-	if (!list)
-		return;
-
 	query = list->data;
+	query->nr_ns--;
+
 	lookup = query->lookup;
 
-	if (query == lookup->ipv6_query) {
+	if (query == lookup->ipv6_query)
 		lookup->ipv6_status = status;
-		lookup->ipv6_query = NULL;
-	} else if (query == lookup->ipv4_query) {
+	else if (query == lookup->ipv4_query)
 		lookup->ipv4_status = status;
-		lookup->ipv4_query = NULL;
-	}
 
 	for (i = 0; i < count; i++) {
+#if defined TIZEN_EXT
+		if (-1 == ns_parserr(&msg, ns_s_an, i, &rr))
+			continue;
+#else
 		ns_parserr(&msg, ns_s_an, i, &rr);
+#endif
 
 		if (ns_rr_class(rr) != ns_c_in)
 			continue;
@@ -701,11 +740,19 @@ static void parse_response(struct resolv_nameserver *nameserver,
 		}
 	}
 
+	if (status != G_RESOLV_RESULT_STATUS_SUCCESS && query->nr_ns > 0)
+		return;
+
+	if (query == lookup->ipv6_query)
+		lookup->ipv6_query = NULL;
+	else
+		lookup->ipv4_query = NULL;
+
+	g_queue_remove(resolv->query_queue, query);
+	destroy_query(query);
+
 	if (lookup->ipv4_query == NULL && lookup->ipv6_query == NULL)
 		sort_and_return_results(lookup);
-
-	destroy_query(query);
-	g_queue_remove(resolv->query_queue, query);
 }
 
 static gboolean received_udp_data(GIOChannel *channel, GIOCondition cond,
@@ -855,6 +902,7 @@ GResolv *g_resolv_ref(GResolv *resolv)
 void g_resolv_unref(GResolv *resolv)
 {
 	struct resolv_query *query;
+	struct resolv_lookup *lookup;
 
 	if (resolv == NULL)
 		return;
@@ -862,8 +910,15 @@ void g_resolv_unref(GResolv *resolv)
 	if (__sync_fetch_and_sub(&resolv->ref_count, 1) != 1)
 		return;
 
-	while ((query = g_queue_pop_head(resolv->query_queue)))
+	while ((lookup = g_queue_pop_head(resolv->lookup_queue))) {
+		debug(resolv, "lookup %p id %d", lookup, lookup->id);
+		destroy_lookup(lookup);
+	}
+
+	while ((query = g_queue_pop_head(resolv->query_queue))) {
+		debug(resolv, "query %p", query);
 		destroy_query(query);
+	}
 
 	g_queue_free(resolv->query_queue);
 	g_queue_free(resolv->lookup_queue);
@@ -937,7 +992,10 @@ static gint add_query(struct resolv_lookup *lookup, const char *hostname, int ty
 
 	query->msgid = buf[0] << 8 | buf[1];
 
-	if (send_query(lookup->resolv, buf, len) < 0) {
+	debug(lookup->resolv, "sending %d bytes", len);
+
+	query->nr_ns = send_query(lookup->resolv, buf, len);
+	if (query->nr_ns <= 0) {
 		g_free(query);
 		return -EIO;
 	}
@@ -946,6 +1004,9 @@ static gint add_query(struct resolv_lookup *lookup, const char *hostname, int ty
 	query->lookup = lookup;
 
 	g_queue_push_tail(lookup->resolv->query_queue, query);
+
+	debug(lookup->resolv, "lookup %p id %d query %p", lookup, lookup->id,
+									query);
 
 	query->timeout = g_timeout_add_seconds(5, query_timeout, query);
 
@@ -962,10 +1023,10 @@ guint g_resolv_lookup_hostname(GResolv *resolv, const char *hostname,
 {
 	struct resolv_lookup *lookup;
 
-	debug(resolv, "lookup hostname %s", hostname);
-
 	if (resolv == NULL)
 		return 0;
+
+	debug(resolv, "hostname %s", hostname);
 
 	if (resolv->nameserver_list == NULL) {
 		int i;
@@ -1011,9 +1072,9 @@ guint g_resolv_lookup_hostname(GResolv *resolv, const char *hostname,
 	if (resolv->result_family != AF_INET) {
 		if (add_query(lookup, hostname, ns_t_aaaa)) {
 			if (resolv->result_family != AF_INET6) {
-				destroy_query(lookup->ipv4_query);
 				g_queue_remove(resolv->query_queue,
 						lookup->ipv4_query);
+				destroy_query(lookup->ipv4_query);
 			}
 
 			g_free(lookup);
@@ -1022,12 +1083,18 @@ guint g_resolv_lookup_hostname(GResolv *resolv, const char *hostname,
 	}
 
 	g_queue_push_tail(resolv->lookup_queue, lookup);
+
+	debug(resolv, "lookup %p id %d", lookup, lookup->id);
+
 	return lookup->id;
 }
 
 gboolean g_resolv_cancel_lookup(GResolv *resolv, guint id)
 {
+	struct resolv_lookup *lookup;
 	GList *list;
+
+	debug(resolv, "lookup id %d", id);
 
 	list = g_queue_find_custom(resolv->lookup_queue,
 				GUINT_TO_POINTER(id), compare_lookup_id);
@@ -1035,8 +1102,12 @@ gboolean g_resolv_cancel_lookup(GResolv *resolv, guint id)
 	if (list == NULL)
 		return FALSE;
 
-	destroy_lookup(list->data);
-	g_queue_remove(resolv->query_queue, list->data);
+	lookup = list->data;
+
+	debug(resolv, "lookup %p", lookup);
+
+	g_queue_remove(resolv->lookup_queue, lookup);
+	destroy_lookup(lookup);
 
 	return TRUE;
 }

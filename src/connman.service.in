@@ -1,11 +1,13 @@
 [Unit]
 Description=Connection service
-After=syslog.target
+After=tizen-system.target shutdown.target
 
 [Service]
 Type=dbus
 BusName=net.connman
-ExecStart=@prefix@/sbin/connmand -n
+RemainAfterExit=yes
+ExecStartPre=/usr/bin/dbus-send --system --dest=net.netconfig / net.netconfig.auto.activate
+ExecStart=/usr/sbin/connmand
 
 [Install]
 WantedBy=multi-user.target

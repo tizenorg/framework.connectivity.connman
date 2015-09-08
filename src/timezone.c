@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -157,9 +157,11 @@ static char *find_origin(void *src_map, struct stat *src_st,
 	DIR *dir;
 	struct dirent *d;
 	char *str, pathname[PATH_MAX];
+	struct stat buf;
+	int ret;
 
 	if (subpath == NULL)
-		strncpy(pathname, basepath, sizeof(pathname));
+		strncpy(pathname, basepath, sizeof(pathname) - 1);
 	else
 		snprintf(pathname, sizeof(pathname),
 					"%s/%s", basepath, subpath);
@@ -192,6 +194,17 @@ static char *find_origin(void *src_map, struct stat *src_st,
 				return str;
 			}
 			break;
+		case DT_UNKNOWN:
+			/*
+			 * If there is no d_type support use fstatat()
+			 * to check if d_name is directory
+			 */
+			ret = fstatat(dirfd(dir), d->d_name, &buf, 0);
+			if (ret < 0)
+				continue;
+			if ((buf.st_mode & S_IFDIR) == 0)
+				continue;
+			/* fall through */
 		case DT_DIR:
 			if (subpath == NULL)
 				strncpy(pathname, d->d_name, sizeof(pathname));

@@ -28,10 +28,6 @@
 #include <glib.h>
 #include <dbus/dbus.h>
 
-#ifdef NEED_DBUS_WATCH_GET_UNIX_FD
-#define dbus_watch_get_unix_fd dbus_watch_get_fd
-#endif
-
 #include "gdbus.h"
 
 #define DISPATCH_TIMEOUT  0
@@ -96,8 +92,9 @@ static gboolean watch_func(GIOChannel *chan, GIOCondition cond, gpointer data)
 	struct watch_info *info = data;
 	unsigned int flags = 0;
 	DBusDispatchStatus status;
+	DBusConnection *conn;
 
-	dbus_connection_ref(info->conn);
+	conn = dbus_connection_ref(info->conn);
 
 	if (cond & G_IO_IN)  flags |= DBUS_WATCH_READABLE;
 	if (cond & G_IO_OUT) flags |= DBUS_WATCH_WRITABLE;
@@ -106,10 +103,10 @@ static gboolean watch_func(GIOChannel *chan, GIOCondition cond, gpointer data)
 
 	dbus_watch_handle(info->watch, flags);
 
-	status = dbus_connection_get_dispatch_status(info->conn);
-	queue_dispatch(info->conn, status);
+	status = dbus_connection_get_dispatch_status(conn);
+	queue_dispatch(conn, status);
 
-	dbus_connection_unref(info->conn);
+	dbus_connection_unref(conn);
 
 	return TRUE;
 }

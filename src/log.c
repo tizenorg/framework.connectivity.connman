@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -41,9 +41,9 @@ static const char *program_path;
 #if defined TIZEN_EXT
 #include <sys/stat.h>
 
-#define LOG_FILE_PATH "/var/log/connman.log"
-#define MAX_LOG_SIZE	2 * 1024 * 1024
-#define MAX_LOG_COUNT	9
+#define LOG_FILE_PATH "/opt/usr/data/network/connman.log"
+#define MAX_LOG_SIZE	1 * 1024 * 1024
+#define MAX_LOG_COUNT	3
 
 #define openlog __connman_log_open
 #define closelog __connman_log_close
@@ -113,7 +113,7 @@ static void __connman_log_get_local_time(char *strtime, const int size)
 	buf = time(NULL);
 	local_ptm = localtime(&buf);
 
-	strftime(strtime, size, "%D %H:%M:%S", local_ptm);
+	strftime(strtime, size, "%m/%d %H:%M:%S", local_ptm);
 }
 
 void __connman_log(const int log_priority, const char *format, va_list ap)
@@ -304,7 +304,7 @@ static void print_backtrace(unsigned int offset)
 		if (written < 0)
 			break;
 
-		len = read(infd[0], buf, sizeof(buf));
+		len = read(infd[0], buf, sizeof(buf) - 1);
 		if (len < 0)
 			break;
 
@@ -367,31 +367,7 @@ static void signal_setup(sighandler_t handler)
 extern struct connman_debug_desc __start___debug[];
 extern struct connman_debug_desc __stop___debug[];
 
-void __connman_debug_list_available(DBusMessageIter *iter, void *user_data)
-{
-	struct connman_debug_desc *desc;
-
-	for (desc = __start___debug; desc < __stop___debug; desc++) {
-		if ((desc->flags & CONNMAN_DEBUG_FLAG_ALIAS) &&
-						desc->name != NULL)
-			dbus_message_iter_append_basic(iter,
-					DBUS_TYPE_STRING, &desc->name);
-	}
-}
-
 static gchar **enabled = NULL;
-
-void __connman_debug_list_enabled(DBusMessageIter *iter, void *user_data)
-{
-	int i;
-
-	if (enabled == NULL)
-		return;
-
-	for (i = 0; enabled[i] != NULL; i++)
-		dbus_message_iter_append_basic(iter,
-					DBUS_TYPE_STRING, &enabled[i]);
-}
 
 static connman_bool_t is_enabled(struct connman_debug_desc *desc)
 {

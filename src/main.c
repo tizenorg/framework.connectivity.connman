@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -35,21 +35,50 @@
 #include <getopt.h>
 #include <sys/stat.h>
 #include <net/if.h>
+#include <netdb.h>
 
 #include <gdbus.h>
 
-#ifdef HAVE_CAPNG
-#include <cap-ng.h>
-#endif
-
 #include "connman.h"
+
+#define DEFAULT_INPUT_REQUEST_TIMEOUT 120 * 1000
+#define DEFAULT_BROWSER_LAUNCH_TIMEOUT 300 * 1000
 
 static struct {
 	connman_bool_t bg_scan;
-	connman_bool_t single_connection;
+	char **pref_timeservers;
+	unsigned int *auto_connect;
+	unsigned int *preferred_techs;
+	char **fallback_nameservers;
+	unsigned int timeout_inputreq;
+	unsigned int timeout_browserlaunch;
+	char **blacklisted_interfaces;
+	connman_bool_t single_tech;
+#if defined TIZEN_EXT
+	char **cellular_interfaces;
+	char **online_accessibility;
+	unsigned int *wifi_pairing_priority;
+	char **preferred_network_names;
+	connman_bool_t wifi_dhcp_release;
+#endif
 } connman_settings  = {
 	.bg_scan = TRUE,
-	.single_connection = FALSE,
+	.pref_timeservers = NULL,
+	.auto_connect = NULL,
+	.preferred_techs = NULL,
+	.fallback_nameservers = NULL,
+	.timeout_inputreq = DEFAULT_INPUT_REQUEST_TIMEOUT,
+	.timeout_browserlaunch = DEFAULT_BROWSER_LAUNCH_TIMEOUT,
+	.blacklisted_interfaces = NULL,
+#if defined TIZEN_EXT
+	.single_tech = TRUE,
+	.online_accessibility = NULL,
+	.wifi_pairing_priority = NULL,
+	.preferred_network_names = NULL,
+	.wifi_dhcp_release = FALSE,
+#else
+	.single_tech = FALSE,
+#endif
 };
 
 static GKeyFile *load_config(const char *file)
@@ -75,13 +104,181 @@ static GKeyFile *load_config(const char *file)
 	return keyfile;
 }
 
+static uint *parse_service_types(char **str_list, gsize len)
+{
+	unsigned int *type_list;
+	int i, j;
+	enum connman_service_type type;
+
+	type_list = g_try_new0(unsigned int, len + 1);
+	if (type_list == NULL)
+		return NULL;
+
+	i = 0;
+	j = 0;
+	while (str_list[i] != NULL)
+	{
+		type = __connman_service_string2type(str_list[i]);
+
+		if (type != CONNMAN_SERVICE_TYPE_UNKNOWN) {
+			type_list[j] = type;
+			j += 1;
+		}
+		i += 1;
+	}
+
+	return type_list;
+}
+
+static char **parse_fallback_nameservers(char **nameservers, gsize len)
+{
+	char **servers;
+	int i, j;
+
+	servers = g_try_new0(char *, len + 1);
+	if (servers == NULL)
+		return NULL;
+
+	i = 0;
+	j = 0;
+	while (nameservers[i] != NULL) {
+		if (connman_inet_check_ipaddress(nameservers[i]) > 0) {
+			servers[j] = g_strdup(nameservers[i]);
+			j += 1;
+		}
+		i += 1;
+	}
+
+	return servers;
+}
+
+#if defined TIZEN_EXT
+#define TIZEN_CUSTOM_SETTING "/opt/system/csc-default/usr"
+
+static enum connman_service_security convert_wifi_security(const char *security)
+{
+	if (security == NULL)
+		return CONNMAN_SERVICE_SECURITY_UNKNOWN;
+	else if (g_str_equal(security, "none") == TRUE)
+		return CONNMAN_SERVICE_SECURITY_NONE;
+	else if (g_str_equal(security, "wep") == TRUE)
+		return CONNMAN_SERVICE_SECURITY_WEP;
+	else if (g_str_equal(security, "psk") == TRUE)
+		return CONNMAN_SERVICE_SECURITY_PSK;
+	else if (g_str_equal(security, "ieee8021x") == TRUE)
+		return CONNMAN_SERVICE_SECURITY_8021X;
+	else
+		return CONNMAN_SERVICE_SECURITY_UNKNOWN;
+}
+
+static uint *parse_wifi_security_types(char **str_list, gsize len)
+{
+	unsigned int *type_list;
+	int i, j;
+	enum connman_service_security type;
+
+	type_list = g_try_new0(unsigned int, len + 1);
+	if (type_list == NULL)
+		return NULL;
+
+	i = 0;
+	j = 0;
+	while (str_list[i] != NULL)
+	{
+		type = convert_wifi_security(str_list[i]);
+
+		if (type != CONNMAN_SERVICE_SECURITY_UNKNOWN) {
+			type_list[j] = type;
+			j += 1;
+		}
+		i += 1;
+	}
+
+	return type_list;
+}
+
+static void check_Tizen_configuration(GKeyFile *config)
+{
+	GError *error = NULL;
+	gboolean boolean;
+	char **cellular_interfaces;
+	char **online_accessibility;
+	char **str_list;
+	gsize len;
+
+	cellular_interfaces = g_key_file_get_string_list(config, "General",
+			"NetworkCellularInterfaceList", &len, &error);
+
+	if (error == NULL)
+		connman_settings.cellular_interfaces = cellular_interfaces;
+
+	g_clear_error(&error);
+
+	online_accessibility = g_key_file_get_string_list(config, "General",
+			"OnlineAccessibility", &len, &error);
+
+	if (error == NULL)
+		connman_settings.online_accessibility = online_accessibility;
+
+	g_clear_error(&error);
+
+	str_list = g_key_file_get_string_list(config, "General",
+			"WifiPairingPriority", &len, &error);
+
+	if (error == NULL)
+		connman_settings.wifi_pairing_priority =
+			parse_wifi_security_types(str_list, len);
+
+	g_strfreev(str_list);
+
+	g_clear_error(&error);
+
+	str_list = g_key_file_get_string_list(config, "General",
+			"PreferredNetworkNames", &len, &error);
+
+	if (error == NULL)
+		connman_settings.preferred_network_names = str_list;
+
+	g_clear_error(&error);
+
+	boolean = g_key_file_get_boolean(config, "General",
+			"WifiDhcpRelease", &error);
+
+	if (error == NULL)
+		connman_settings.wifi_dhcp_release = boolean;
+
+	g_clear_error(&error);
+}
+#endif
+
 static void parse_config(GKeyFile *config)
 {
 	GError *error = NULL;
 	gboolean boolean;
+	char **timeservers;
+	char **interfaces;
+	char **str_list;
+	gsize len;
+	static char *default_auto_connect[] = {
+		"wifi",
+		"ethernet",
+		"cellular",
+		NULL
+	};
+	static char *default_blacklist[] = {
+		"vmnet",
+		"vboxnet",
+		"virbr",
+		NULL
+	};
+	int timeout;
 
-	if (config == NULL)
+	if (config == NULL) {
+		connman_settings.auto_connect =
+			parse_service_types(default_auto_connect, 3);
+		connman_settings.blacklisted_interfaces = default_blacklist;
 		return;
+	}
 
 	DBG("parsing main.conf");
 
@@ -92,12 +289,83 @@ static void parse_config(GKeyFile *config)
 
 	g_clear_error(&error);
 
-	boolean = g_key_file_get_boolean(config, "General",
-			"SingleConnection", &error);
+	timeservers = g_key_file_get_string_list(config, "General",
+						"FallbackTimeservers", NULL, &error);
 	if (error == NULL)
-		connman_settings.single_connection = boolean;
+		connman_settings.pref_timeservers = timeservers;
 
 	g_clear_error(&error);
+
+	str_list = g_key_file_get_string_list(config, "General",
+			"DefaultAutoConnectTechnologies", &len, &error);
+
+	if (error == NULL)
+		connman_settings.auto_connect =
+			parse_service_types(str_list, len);
+	else
+		connman_settings.auto_connect =
+			parse_service_types(default_auto_connect, 3);
+
+	g_strfreev(str_list);
+
+	g_clear_error(&error);
+
+	str_list = g_key_file_get_string_list(config, "General",
+			"PreferredTechnologies", &len, &error);
+
+	if (error == NULL)
+		connman_settings.preferred_techs =
+			parse_service_types(str_list, len);
+
+	g_strfreev(str_list);
+
+	g_clear_error(&error);
+
+	str_list = g_key_file_get_string_list(config, "General",
+			"FallbackNameservers", &len, &error);
+
+	if (error == NULL)
+		connman_settings.fallback_nameservers =
+			parse_fallback_nameservers(str_list, len);
+
+	g_strfreev(str_list);
+
+	g_clear_error(&error);
+
+	timeout = g_key_file_get_integer(config, "General",
+			"InputRequestTimeout", &error);
+	if (error == NULL && timeout >= 0)
+		connman_settings.timeout_inputreq = timeout * 1000;
+
+	g_clear_error(&error);
+
+	timeout = g_key_file_get_integer(config, "General",
+			"BrowserLaunchTimeout", &error);
+	if (error == NULL && timeout >= 0)
+		connman_settings.timeout_browserlaunch = timeout * 1000;
+
+	g_clear_error(&error);
+
+	interfaces = g_key_file_get_string_list(config, "General",
+			"NetworkInterfaceBlacklist", &len, &error);
+
+	if (error == NULL)
+		connman_settings.blacklisted_interfaces = interfaces;
+	else
+		connman_settings.blacklisted_interfaces = default_blacklist;
+
+	g_clear_error(&error);
+
+	boolean = g_key_file_get_boolean(config, "General",
+			"SingleConnectedTechnology", &error);
+	if (error == NULL)
+		connman_settings.single_tech = boolean;
+
+	g_clear_error(&error);
+
+#if defined TIZEN_EXT
+	check_Tizen_configuration(config);
+#endif
 }
 
 static GMainLoop *main_loop = NULL;
@@ -247,10 +515,58 @@ connman_bool_t connman_setting_get_bool(const char *key)
 	if (g_str_equal(key, "BackgroundScanning") == TRUE)
 		return connman_settings.bg_scan;
 
-	if (g_str_equal(key, "SingleConnection") == TRUE)
-		return connman_settings.single_connection;
+	if (g_str_equal(key, "SingleConnectedTechnology") == TRUE)
+		return connman_settings.single_tech;
 
+#if defined TIZEN_EXT
+	if (g_str_equal(key, "WiFiDHCPRelease") == TRUE)
+		return connman_settings.wifi_dhcp_release;
+#endif
 	return FALSE;
+}
+
+char **connman_setting_get_string_list(const char *key)
+{
+	if (g_str_equal(key, "FallbackTimeservers") == TRUE)
+		return connman_settings.pref_timeservers;
+
+	if (g_str_equal(key, "FallbackNameservers") == TRUE)
+		return connman_settings.fallback_nameservers;
+
+	if (g_str_equal(key, "NetworkInterfaceBlacklist") == TRUE)
+		return connman_settings.blacklisted_interfaces;
+
+#if defined TIZEN_EXT
+	if (g_str_equal(key, "NetworkCellularInterfaceList") == TRUE)
+		return connman_settings.cellular_interfaces;
+
+	if (g_str_equal(key, "PreferredNetworkNames") == TRUE)
+		return connman_settings.preferred_network_names;
+#endif
+	return NULL;
+}
+
+unsigned int *connman_setting_get_uint_list(const char *key)
+{
+	if (g_str_equal(key, "DefaultAutoConnectTechnologies") == TRUE)
+		return connman_settings.auto_connect;
+
+	if (g_str_equal(key, "PreferredTechnologies") == TRUE)
+		return connman_settings.preferred_techs;
+
+#if defined TIZEN_EXT
+	if (g_str_equal(key, "WiFiPairingPriority") == TRUE)
+		return connman_settings.wifi_pairing_priority;
+#endif
+	return NULL;
+}
+
+unsigned int connman_timeout_input_request(void) {
+	return connman_settings.timeout_inputreq;
+}
+
+unsigned int connman_timeout_browser_launch(void) {
+	return connman_settings.timeout_browserlaunch;
 }
 
 int main(int argc, char *argv[])
@@ -262,10 +578,6 @@ int main(int argc, char *argv[])
 	GKeyFile *config;
 #if !defined TIZEN_EXT
 	guint signal;
-#endif
-
-#ifdef HAVE_CAPNG
-	/* Drop capabilities */
 #endif
 
 #ifdef NEED_THREADS
@@ -344,11 +656,15 @@ int main(int argc, char *argv[])
 
 	__connman_dbus_init(conn);
 
+#if defined TIZEN_EXT
+	config = load_config(TIZEN_CUSTOM_SETTING "/wifi/main.conf");
+	if (config == NULL)
+#endif
 	config = load_config(CONFIGDIR "/main.conf");
-
 	parse_config(config);
+	if (config != NULL)
+		g_key_file_free(config);
 
-	__connman_storage_migrate();
 	__connman_technology_init();
 	__connman_notifier_init();
 	__connman_service_init();
@@ -357,7 +673,9 @@ int main(int argc, char *argv[])
 	__connman_device_init(option_device, option_nodevice);
 
 	__connman_agent_init();
+	__connman_ippool_init();
 	__connman_iptables_init();
+	__connman_nat_init();
 	__connman_tethering_init();
 	__connman_counter_init();
 	__connman_manager_init();
@@ -372,13 +690,19 @@ int main(int argc, char *argv[])
 	__connman_proxy_init();
 	__connman_detect_init();
 	__connman_session_init();
+#if !defined TIZEN_EXT
 	__connman_timeserver_init();
+#endif
 	__connman_connection_init();
 
 	__connman_plugin_init(option_plugin, option_noplugin);
 
 	__connman_rtnl_start();
+#if defined TIZEN_EXT && defined TIZEN_RTC_TIMER
+	__connman_rtctimer_init();
+#endif
 	__connman_dhcp_init();
+	__connman_dhcpv6_init();
 	__connman_wpad_init();
 	__connman_wispr_init();
 	__connman_rfkill_init();
@@ -397,11 +721,17 @@ int main(int argc, char *argv[])
 	__connman_rfkill_cleanup();
 	__connman_wispr_cleanup();
 	__connman_wpad_cleanup();
+	__connman_dhcpv6_cleanup();
 	__connman_dhcp_cleanup();
-	__connman_provider_cleanup();
+#if defined TIZEN_EXT && defined TIZEN_RTC_TIMER
+	__connman_rtctimer_cleanup();
+#endif
 	__connman_plugin_cleanup();
+	__connman_provider_cleanup();
 	__connman_connection_cleanup();
+#if !defined TIZEN_EXT
 	__connman_timeserver_cleanup();
+#endif
 	__connman_session_cleanup();
 	__connman_detect_cleanup();
 	__connman_proxy_cleanup();
@@ -416,7 +746,9 @@ int main(int argc, char *argv[])
 	__connman_counter_cleanup();
 	__connman_agent_cleanup();
 	__connman_tethering_cleanup();
+	__connman_nat_cleanup();
 	__connman_iptables_cleanup();
+	__connman_ippool_cleanup();
 	__connman_device_cleanup();
 	__connman_network_cleanup();
 	__connman_service_cleanup();
@@ -432,8 +764,12 @@ int main(int argc, char *argv[])
 
 	g_main_loop_unref(main_loop);
 
-	if (config)
-		g_key_file_free(config);
+	if (connman_settings.pref_timeservers != NULL)
+		g_strfreev(connman_settings.pref_timeservers);
+
+	g_free(connman_settings.auto_connect);
+	g_free(connman_settings.preferred_techs);
+	g_strfreev(connman_settings.fallback_nameservers);
 
 	g_free(option_debug);
 

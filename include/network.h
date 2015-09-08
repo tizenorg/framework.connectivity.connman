@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2010  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -40,7 +40,6 @@ enum connman_network_type {
 	CONNMAN_NETWORK_TYPE_UNKNOWN       = 0,
 	CONNMAN_NETWORK_TYPE_ETHERNET      = 1,
 	CONNMAN_NETWORK_TYPE_WIFI          = 2,
-	CONNMAN_NETWORK_TYPE_WIMAX         = 3,
 	CONNMAN_NETWORK_TYPE_BLUETOOTH_PAN = 8,
 	CONNMAN_NETWORK_TYPE_BLUETOOTH_DUN = 9,
 	CONNMAN_NETWORK_TYPE_CELLULAR      = 10,
@@ -53,6 +52,9 @@ enum connman_network_error {
 	CONNMAN_NETWORK_ERROR_CONFIGURE_FAIL  = 2,
 	CONNMAN_NETWORK_ERROR_INVALID_KEY     = 3,
 	CONNMAN_NETWORK_ERROR_CONNECT_FAIL    = 4,
+#if defined TIZEN_EXT
+	CONNMAN_NETWORK_ERROR_DHCP_FAIL       = 5,
+#endif
 };
 
 #define CONNMAN_NETWORK_PRIORITY_LOW      -100
@@ -63,8 +65,18 @@ struct connman_network;
 
 struct connman_network *connman_network_create(const char *identifier,
 					enum connman_network_type type);
-struct connman_network *connman_network_ref(struct connman_network *network);
-void connman_network_unref(struct connman_network *network);
+
+#define connman_network_ref(network) \
+	connman_network_ref_debug(network, __FILE__, __LINE__, __func__)
+
+#define connman_network_unref(network) \
+	connman_network_unref_debug(network, __FILE__, __LINE__, __func__)
+
+struct connman_network *
+connman_network_ref_debug(struct connman_network *network,
+			const char *file, int line, const char *caller);
+void connman_network_unref_debug(struct connman_network *network,
+			const char *file, int line, const char *caller);
 
 enum connman_network_type connman_network_get_type(struct connman_network *network);
 const char *connman_network_get_identifier(struct connman_network *network);
@@ -84,12 +96,19 @@ int connman_network_set_associating(struct connman_network *network,
 						connman_bool_t associating);
 void connman_network_set_error(struct connman_network *network,
 					enum connman_network_error error);
+#if defined TIZEN_EXT
+void connman_network_clear_associating(struct connman_network *network);
+#endif
 void connman_network_clear_error(struct connman_network *network);
 int connman_network_set_connected(struct connman_network *network,
 						connman_bool_t connected);
 connman_bool_t connman_network_get_connected(struct connman_network *network);
 
 connman_bool_t connman_network_get_associating(struct connman_network *network);
+
+void connman_network_clear_hidden(void *user_data);
+int connman_network_connect_hidden(struct connman_network *network,
+			char *identity, char* passphrase, void *user_data);
 
 void connman_network_set_ipv4_method(struct connman_network *network,
 					enum connman_ipconfig_method method);
@@ -102,11 +121,6 @@ int connman_network_set_nameservers(struct connman_network *network,
 int connman_network_set_domain(struct connman_network *network,
 			             const char *domain);
 #if defined TIZEN_EXT
-/*
- * Description: Telephony plug-in requires manual PROXY setting function
- */
-int connman_network_set_proxy(struct connman_network *network,
-				const char *proxies);
 /*
  * Description: Network client requires additional wifi specific info
  */
@@ -122,7 +136,9 @@ int connman_network_set_enc_mode(struct connman_network *network,
 				const char *encryption_mode);
 const char *connman_network_get_enc_mode(struct connman_network *network);
 
-const char *connman_network_get_ifname(struct connman_network *network);
+int connman_network_set_is_hs20AP(struct connman_network *network,
+				unsigned int isHS20AP);
+unsigned int connman_network_get_is_hs20AP(struct connman_network *network);
 #endif
 
 int connman_network_set_name(struct connman_network *network,
@@ -130,8 +146,6 @@ int connman_network_set_name(struct connman_network *network,
 int connman_network_set_strength(struct connman_network *network,
 						connman_uint8_t strength);
 connman_uint8_t connman_network_get_strength(struct connman_network *network);
-int connman_network_set_roaming(struct connman_network *network,
-						connman_bool_t roaming);
 int connman_network_set_frequency(struct connman_network *network,
 					connman_uint16_t frequency);
 connman_uint16_t connman_network_get_frequency(struct connman_network *network);
@@ -167,6 +181,9 @@ struct connman_network_driver {
 	void (*remove) (struct connman_network *network);
 	int (*connect) (struct connman_network *network);
 	int (*disconnect) (struct connman_network *network);
+#if defined TIZEN_EXT
+	int (*merge) (struct connman_network *network);
+#endif
 };
 
 int connman_network_driver_register(struct connman_network_driver *driver);

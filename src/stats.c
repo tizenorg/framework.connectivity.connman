@@ -125,7 +125,7 @@ struct stats_iter {
 	struct stats_record *it;
 };
 
-GHashTable *stats_hash = NULL;
+static GHashTable *stats_hash = NULL;
 
 static struct stats_file_header *get_hdr(struct stats_file *file)
 {
@@ -692,7 +692,7 @@ int __connman_stats_service_register(struct connman_service *service)
 
 	/* If the dir doesn't exist, create it */
 	if (!g_file_test(dir, G_FILE_TEST_IS_DIR)) {
-		if(mkdir(dir, MODE) < 0) {
+		if (mkdir(dir, MODE) < 0) {
 			if (errno != EEXIST) {
 				g_free(dir);
 
