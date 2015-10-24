@@ -65,7 +65,7 @@
 
 #define TIMEOUT 130000
 
-#define STRING2BOOL(a)	((g_str_equal(a, "TRUE")) ? (TRUE):(FALSE))
+#define STRING2BOOL(a)	(!(g_strcmp0(a, "TRUE")) ? (TRUE):(FALSE))
 
 static DBusConnection *connection;
 static GHashTable	*modem_hash;
@@ -97,6 +97,10 @@ struct telephony_modem {
 
 struct telephony_network {
 	char *path;
+	int if_index;
+	gboolean routing_only;
+	gboolean ipv6_link_only;
+
 	struct connman_network *network;
 
 	enum connman_ipconfig_method ipv4_method;
@@ -105,6 +109,8 @@ struct telephony_network {
 	enum connman_ipconfig_method ipv6_method;
 	struct connman_ipaddress *ipv6_address;
 };
+
+static int telephony_default_subscription_id = 0;
 
 /* function prototype */
 static void telephony_connect(DBusConnection *connection, void *user_data);
@@ -217,8 +223,8 @@ static void telephony_connect(DBusConnection *connection, void *user_data)
 						g_free, __remove_service);
 	network_hash = g_hash_table_new_full(g_str_hash, g_str_equal,
 						g_free, __remove_network);
+
 	__request_get_modems();
-	return;
 }
 
 static void telephony_disconnect(DBusConnection *connection, void *user_data)
@@ -234,8 +240,6 @@ static void telephony_disconnect(DBusConnection *connection, void *user_data)
 		g_hash_table_destroy(network_hash);
 		network_hash = NULL;
 	}
-
-	return;
 }
 
 static void __remove_modem(gpointer data)
@@ -359,16 +363,13 @@ static void __network_remove(struct connman_network *network)
 	DBG("network %p path %s", network, path);
 
 	g_hash_table_remove(network_hash, path);
-	return;
 }
 
 static int __dbus_request(const char *path, const char *interface,
-			const char *method,
-			DBusPendingCallNotifyFunction notify, void *user_data,
-			DBusFreeFunction free_function, int type, ...)
+		const char *method,
+		DBusPendingCallNotifyFunction notify, void *user_data,
+		DBusFreeFunction free_function, int type, ...)
 {
-	DBG("telephony request");
-
 	DBusMessage *message;
 	DBusPendingCall *call;
 	dbus_bool_t ok;
@@ -379,8 +380,7 @@ static int __dbus_request(const char *path, const char *interface,
 	if (path == NULL)
 		return -EINVAL;
 
-	message = dbus_message_new_method_call(PS_DBUS_SERVICE, path,
-						interface, method);
+	message = dbus_message_new_method_call(PS_DBUS_SERVICE, path, interface, method);
 	if (message == NULL)
 		return -ENOMEM;
 
@@ -469,15 +469,14 @@ static void __response_get_modems(DBusPendingCall *call, void *user_data)
 done:
 	dbus_message_unref(reply);
 	dbus_pending_call_unref(call);
-	return;
 }
 
 static int __request_get_services(const char *path)
 {
 	DBG("request get service");
 	return __dbus_request(path, PS_MODEM_INTERFACE, GET_SERVICES,
-				__response_get_services, g_strdup(path),
-				g_free, DBUS_TYPE_INVALID);
+			__response_get_services, g_strdup(path),
+			g_free, DBUS_TYPE_INVALID);
 }
 
 static void __response_get_services(DBusPendingCall *call, void *user_data)
@@ -537,16 +536,15 @@ static void __response_get_services(DBusPendingCall *call, void *user_data)
 done:
 	dbus_message_unref(reply);
 	dbus_pending_call_unref(call);
-	return;
 }
 
 static int __request_get_contexts(struct telephony_modem *modem)
 {
 	DBG("request get contexts");
 	return __dbus_request(modem->s_service->path,
-				PS_SERVICE_INTERFACE, GET_CONTEXTS,
-				__response_get_contexts, g_strdup(modem->path),
-				g_free, DBUS_TYPE_INVALID);
+			PS_SERVICE_INTERFACE, GET_CONTEXTS,
+			__response_get_contexts, g_strdup(modem->path),
+			g_free, DBUS_TYPE_INVALID);
 }
 
 static void __response_get_contexts(DBusPendingCall *call, void *user_data)
@@ -608,10 +606,25 @@ done:
 
 static int __request_network_activate(struct connman_network *network)
 {
-	DBG("request network activate");
+	int n_modems;
+	const char *path = NULL;
+	struct telephony_modem *modem = NULL;
 
-	const char *path = connman_network_get_string(network, "Path");
-	DBG("network %p, path %s", network, path);
+	n_modems = g_hash_table_size(modem_hash);
+	path = connman_network_get_string(network, "Path");
+	modem = connman_device_get_data(connman_network_get_device(network));
+	DBG("network %p, path %s, modem %s[%d]", network, path, modem->path,
+			telephony_default_subscription_id);
+
+	if (modem && n_modems > 1 && g_str_has_suffix(path, "_1") == TRUE) {
+		char *subscribe_id = g_strdup_printf("%d", telephony_default_subscription_id);
+
+		if (g_str_has_suffix(modem->path, subscribe_id) != TRUE) {
+			g_free(subscribe_id);
+			return -ENOLINK;
+		}
+		g_free(subscribe_id);
+	}
 
 	return __dbus_request(path, PS_CONTEXT_INTERFACE, ACTIVATE_CONTEXT,
 			__response_network_activate,
@@ -671,18 +684,62 @@ static void __response_network_activate(DBusPendingCall *call, void *user_data)
 done:
 	dbus_message_unref(reply);
 	dbus_pending_call_unref(call);
-	return;
 }
 
 static int __request_network_deactivate(struct connman_network *network)
 {
-	DBG("request network deactivate");
-
 	const char *path = connman_network_get_string(network, "Path");
 	DBG("network %p, path %s", network, path);
 
 	return __dbus_request(path, PS_CONTEXT_INTERFACE, DEACTIVATE_CONTEXT,
-		NULL, NULL, NULL, DBUS_TYPE_INVALID);
+			NULL, NULL, NULL, DBUS_TYPE_INVALID);
+}
+
+static void __response_get_default_subscription_id(DBusPendingCall *call,
+		void *user_data)
+{
+	DBusMessage *reply;
+	DBusError error;
+	DBusMessageIter args;
+
+	DBG("");
+
+	reply = dbus_pending_call_steal_reply(call);
+
+	dbus_error_init(&error);
+	if (dbus_set_error_from_message(&error, reply)) {
+		connman_error("GetDefaultDataSubscription() %s %s", error.name, error.message);
+		dbus_error_free(&error);
+		goto done;
+	}
+
+	DBG("message signature (%s)", dbus_message_get_signature(reply));
+
+	if (dbus_message_iter_init(reply, &args) == FALSE)
+		goto done;
+
+	dbus_message_iter_get_basic(&args, &telephony_default_subscription_id);
+	DBG("default subscription: %d", telephony_default_subscription_id);
+
+done:
+	dbus_message_unref(reply);
+	dbus_pending_call_unref(call);
+}
+
+static int __request_get_default_subscription_id(const char *path)
+{
+	int ret;
+	char *telephony_modem_path = NULL;
+
+	telephony_modem_path = g_strdup_printf("/org/tizen/telephony%s", path);
+	DBG("request get default subscription id %s", telephony_modem_path);
+
+	ret = __dbus_request(telephony_modem_path,
+			"org.tizen.telephony.Network", "GetDefaultDataSubscription",
+			__response_get_default_subscription_id, NULL, NULL, DBUS_TYPE_INVALID);
+
+	g_free(telephony_modem_path);
+	return ret;
 }
 
 static void __add_modem(const char *path, DBusMessageIter *prop)
@@ -715,17 +772,17 @@ static void __add_modem(const char *path, DBusMessageIter *prop)
 
 		DBG("key (%s) value(%s)", key, tmp);
 
-		if (g_str_equal(key, "powered") == TRUE) {
+		if (g_strcmp0(key, "powered") == 0) {
 			modem->powered = STRING2BOOL(tmp);
-		} else if (g_str_equal(key, "operator") == TRUE) {
+		} else if (g_strcmp0(key, "operator") == 0) {
 			modem->operator = g_strdup(tmp);
-		} else if (g_str_equal(key, "sim_init") == TRUE) {
+		} else if (g_strcmp0(key, "sim_init") == 0) {
 			modem->sim_init = STRING2BOOL(tmp);
-		} else if (g_str_equal(key, "flight_mode") == TRUE) {
+		} else if (g_strcmp0(key, "flight_mode") == 0) {
 			modem->flight_mode = STRING2BOOL(tmp);
-		} else if (g_str_equal(key, "roaming_allowed") == TRUE) {
+		} else if (g_strcmp0(key, "roaming_allowed") == 0) {
 			modem->roaming_allowed = STRING2BOOL(tmp);
-		} else if (g_str_equal(key, "data_allowed") == TRUE) {
+		} else if (g_strcmp0(key, "data_allowed") == 0) {
 			modem->data_allowed = STRING2BOOL(tmp);
 		}
 		dbus_message_iter_next(prop);
@@ -734,14 +791,15 @@ static void __add_modem(const char *path, DBusMessageIter *prop)
 	__add_connman_device(path, modem->operator);
 	__set_device_powered(modem, modem->powered);
 
+	if (g_hash_table_size(modem_hash) > 1)
+		__request_get_default_subscription_id(modem->path);
+
 	if (modem->powered != TRUE) {
 		DBG("modem is not powered");
 		return;
 	}
 
 	__request_get_services(modem->path);
-
-	return;
 }
 
 static void __add_service(struct telephony_modem *modem,
@@ -772,11 +830,11 @@ static void __add_service(struct telephony_modem *modem,
 
 		DBG("key (%s) value(%s)", key, tmp);
 
-		if (g_str_equal(key, "roaming") == TRUE) {
+		if (g_strcmp0(key, "roaming") == 0) {
 			service->roaming = STRING2BOOL(tmp);
-		} else if (g_str_equal(key, "act") == TRUE) {
+		} else if (g_strcmp0(key, "act") == 0) {
 			service->act = g_strdup(tmp);
-		} else if (g_str_equal(key, "ps_attached") == TRUE) {
+		} else if (g_strcmp0(key, "ps_attached") == 0) {
 			service->ps_attached = STRING2BOOL(tmp);
 		}
 
@@ -785,12 +843,25 @@ static void __add_service(struct telephony_modem *modem,
 
 	modem->s_service = service;
 	__request_get_contexts(modem);
+}
 
-	return;
+static char *__get_ident(const char *path)
+{
+	char *pos;
+
+	if (*path != '/')
+		return NULL;
+
+	pos = strrchr(path, '/');
+	if (pos == NULL)
+		return NULL;
+
+	return pos + 1;
 }
 
 static void __add_connman_device(const char *modem_path, const char *operator)
 {
+	char* ident = NULL;
 	struct telephony_modem *modem;
 	struct connman_device *device;
 
@@ -821,7 +892,10 @@ static void __add_connman_device(const char *modem_path, const char *operator)
 	if (device == NULL)
 		return;
 
-	connman_device_set_ident(device, operator);
+	ident = g_strdup_printf("%s_%s", __get_ident(modem_path), operator);
+	connman_device_set_ident(device, ident);
+	g_free(ident);
+
 	connman_device_set_string(device, "Path", modem_path);
 	connman_device_set_data(device, modem);
 
@@ -832,8 +906,6 @@ static void __add_connman_device(const char *modem_path, const char *operator)
 	}
 
 	modem->device = device;
-
-	return;
 }
 
 static void __remove_connman_device(struct telephony_modem *modem)
@@ -849,8 +921,6 @@ static void __remove_connman_device(struct telephony_modem *modem)
 	connman_device_unref(modem->device);
 
 	modem->device = NULL;
-
-	return;
 }
 
 static void __remove_connman_networks(struct connman_device *device)
@@ -882,24 +952,10 @@ static void __remove_connman_networks(struct connman_device *device)
 	g_slist_free(info_list);
 }
 
-static char *__get_ident(const char *path)
-{
-	char *pos;
-
-	if (*path != '/')
-		return NULL;
-
-	pos = strrchr(path, '/');
-	if (pos == NULL)
-		return NULL;
-
-	return pos + 1;
-}
-
 static gboolean connman_ipaddress_updated(struct connman_ipaddress *ipaddress,
 					const char *address, const char *gateway)
 {
-	if (ipaddress == NULL)
+	if (ipaddress == NULL || address == NULL)
 		return FALSE;
 
 	if (g_strcmp0(ipaddress->local, address) != 0)
@@ -912,23 +968,25 @@ static gboolean connman_ipaddress_updated(struct connman_ipaddress *ipaddress,
 }
 
 static void __set_network_connected(struct telephony_network *network,
-					connman_bool_t connected)
+					gboolean connected)
 {
 	gboolean setip = FALSE;
 
 	DBG("network %p connected %d", network, connected);
 
+	connman_network_set_index(network->network, network->if_index);
 	if (connman_network_get_connected(network->network) == connected)
 		return;
 
 	switch (network->ipv4_method) {
 	case CONNMAN_IPCONFIG_METHOD_UNKNOWN:
-	case CONNMAN_IPCONFIG_METHOD_OFF:
-	case CONNMAN_IPCONFIG_METHOD_MANUAL:
+	case CONNMAN_IPCONFIG_METHOD_DHCP:
 	case CONNMAN_IPCONFIG_METHOD_AUTO:
-		setip = TRUE;
+	case CONNMAN_IPCONFIG_METHOD_OFF:
+		connman_network_set_ipv4_method(network->network,
+							network->ipv4_method);
 		break;
-
+	case CONNMAN_IPCONFIG_METHOD_MANUAL:
 	case CONNMAN_IPCONFIG_METHOD_FIXED:
 		connman_network_set_ipv4_method(network->network,
 							network->ipv4_method);
@@ -936,21 +994,11 @@ static void __set_network_connected(struct telephony_network *network,
 							network->ipv4_address);
 		setip = TRUE;
 		break;
-
-	case CONNMAN_IPCONFIG_METHOD_DHCP:
-		connman_network_set_ipv4_method(network->network,
-							network->ipv4_method);
-		setip = TRUE;
-		break;
 	}
 
 	switch (network->ipv6_method) {
 	case CONNMAN_IPCONFIG_METHOD_UNKNOWN:
 	case CONNMAN_IPCONFIG_METHOD_OFF:
-		setip = TRUE;
-		break;
-
-	case CONNMAN_IPCONFIG_METHOD_MANUAL:
 	case CONNMAN_IPCONFIG_METHOD_DHCP:
 		break;
 	case CONNMAN_IPCONFIG_METHOD_AUTO:
@@ -958,7 +1006,7 @@ static void __set_network_connected(struct telephony_network *network,
 							network->ipv6_method);
 		setip = TRUE;
 		break;
-
+	case CONNMAN_IPCONFIG_METHOD_MANUAL:
 	case CONNMAN_IPCONFIG_METHOD_FIXED:
 		connman_network_set_ipv6_method(network->network,
 							network->ipv6_method);
@@ -972,14 +1020,16 @@ static void __set_network_connected(struct telephony_network *network,
 		connman_network_set_connected(network->network, connected);
 }
 
-static connman_bool_t __set_network_context(
+static gboolean __set_network_context(
 							struct telephony_network *network,
 							DBusMessageIter *dict)
 {
 	int index = 0;
-	connman_bool_t active = FALSE;
+	gboolean active = FALSE;
+	gboolean routing_only = FALSE;
 	gboolean ipv4_updated = FALSE;
 	gboolean ipv6_updated = FALSE;
+	gboolean ipv6_link_only = FALSE;
 	gboolean default_internet = FALSE;
 	gboolean active_proxy = FALSE;
 	char **proxies = NULL;
@@ -1000,53 +1050,71 @@ static connman_bool_t __set_network_context(
 
 		dbus_message_iter_next(&entry);
 
-		if (g_str_equal(key, "dev_name") == TRUE) {
+		if (g_strcmp0(key, "dev_name") == 0) {
 			dbus_message_iter_get_basic(&entry, &dev_name);
 			DBG("dev_name (%s)", dev_name);
-		} else if (g_str_equal(key, "proxy") == TRUE) {
+		} else if (g_strcmp0(key, "proxy") == 0) {
 			dbus_message_iter_get_basic(&entry, &proxy_addr);
 			DBG("proxy_addr (%s)", proxy_addr);
-		} else if (g_str_equal(key, "ipv4_address") == TRUE) {
+		} else if (g_strcmp0(key, "ipv4_address") == 0) {
 			dbus_message_iter_get_basic(&entry, &ipv4_addr);
 			DBG("ipv4_addr (%s)", ipv4_addr);
-		} else if (g_str_equal(key, "ipv4_gateway") == TRUE) {
+		} else if (g_strcmp0(key, "ipv4_gateway") == 0) {
 			dbus_message_iter_get_basic(&entry, &ipv4_gw);
 			DBG("ipv4_gw (%s)", ipv4_gw);
-		} else if (g_str_equal(key, "ipv4_netmask") == TRUE) {
+		} else if (g_strcmp0(key, "ipv4_netmask") == 0) {
 			dbus_message_iter_get_basic(&entry, &ipv4_netmask);
 			DBG("ipv4_netmask (%s)", ipv4_netmask);
-		} else if (g_str_equal(key, "ipv4_dns1") == TRUE) {
+		} else if (g_strcmp0(key, "ipv4_dns1") == 0) {
 			dbus_message_iter_get_basic(&entry, &ipv4_dns1);
 			DBG("ipv4_dns1 (%s)", ipv4_dns1);
-		} else if (g_str_equal(key, "ipv4_dns2") == TRUE) {
+		} else if (g_strcmp0(key, "ipv4_dns2") == 0) {
 			dbus_message_iter_get_basic(&entry, &ipv4_dns2);
 			DBG("ipv4_dns2 (%s)", ipv4_dns2);
-		} else if (g_str_equal(key, "ipv6_address") == TRUE) {
+		} else if (g_strcmp0(key, "ipv6_address") == 0) {
 			dbus_message_iter_get_basic(&entry, &ipv6_addr);
 			DBG("ipv6 address (%s)", ipv6_addr);
-		} else if (g_str_equal(key, "ipv6_gateway") == TRUE) {
+		} else if (g_strcmp0(key, "ipv6_gateway") == 0) {
 			dbus_message_iter_get_basic(&entry, &ipv6_gw);
 			DBG("ipv6_gw (%s)", ipv6_gw);
-		} else if (g_str_equal(key, "ipv6_netmask") == TRUE) {
+		} else if (g_strcmp0(key, "ipv6_netmask") == 0) {
 			dbus_message_iter_get_basic(&entry, &ipv6_netmask);
 			DBG("ipv6_netmask (%s)", ipv6_netmask);
-		} else if (g_str_equal(key, "ipv6_dns1") == TRUE) {
+		} else if (g_strcmp0(key, "ipv6_dns1") == 0) {
 			dbus_message_iter_get_basic(&entry, &ipv6_dns1);
 			DBG("ipv6_dns1 (%s)", ipv6_dns1);
-		} else if (g_str_equal(key, "ipv6_dns2") == TRUE) {
+		} else if (g_strcmp0(key, "ipv6_dns2") == 0) {
 			dbus_message_iter_get_basic(&entry, &ipv6_dns2);
 			DBG("ipv6_dns2 (%s)", ipv6_dns2);
-		} else if (g_str_equal(key, "active") == TRUE) {
+		} else if (g_strcmp0(key, "active") == 0) {
 			dbus_message_iter_get_basic(&entry, &value);
 			DBG("active (%s)", value);
 			active = STRING2BOOL(value);
-		} else if (g_str_equal(key, "default_internet_conn") == TRUE) {
+		} else if (g_strcmp0(key, "routing_only") == 0) {
+			dbus_message_iter_get_basic(&entry, &value);
+			DBG("routing_only (%s)", value);
+			routing_only = STRING2BOOL(value);
+			network->routing_only = routing_only;
+		} else if (g_strcmp0(key, "ipv6_link_only") == 0) {
+			dbus_message_iter_get_basic(&entry, &value);
+			DBG("ipv6_link_only (%s)", value);
+			ipv6_link_only = STRING2BOOL(value);
+			network->ipv6_link_only = ipv6_link_only;
+		}
+		else if (g_strcmp0(key, "default_internet_conn") == 0) {
 			dbus_message_iter_get_basic(&entry, &value);
 			DBG("default_internet (%s)", value);
 			default_internet = STRING2BOOL(value);
 		}
 
 		dbus_message_iter_next(dict);
+	}
+
+	if(routing_only){
+		//context active does not effect the connman service status.
+		//it only for setting the routing path.
+		DBG("routing_only(%d), active(%d)", routing_only, active);
+		return active;
 	}
 
 	if (g_strcmp0(proxy_addr, ":") == 0)
@@ -1073,7 +1141,7 @@ static connman_bool_t __set_network_context(
 		ipv6_dns2 = NULL;
 
 	connman_network_set_bool(network->network, "DefaultInternet",
-								default_internet);
+								(bool)default_internet);
 
 	service = connman_service_lookup_from_network(network->network);
 	if (service == NULL)
@@ -1094,7 +1162,7 @@ static connman_bool_t __set_network_context(
 	/* interface index set */
 	if (dev_name != NULL) {
 		index = connman_inet_ifindex(dev_name);
-		connman_network_set_index(network->network, index);
+		network->if_index = index;
 		DBG("interface index %d", index);
 	}
 
@@ -1125,10 +1193,12 @@ static connman_bool_t __set_network_context(
 	if (network->ipv4_address == NULL)
 		return FALSE;
 
-	if (ipv4_addr == NULL)
+	if (ipv4_addr == NULL && active == TRUE)
 		network->ipv4_method = CONNMAN_IPCONFIG_METHOD_OFF;
 	else
 		network->ipv4_method = CONNMAN_IPCONFIG_METHOD_FIXED;
+
+	connman_network_set_ipv4_method(network->network, network->ipv4_method);
 
 	ipv4_updated = connman_ipaddress_updated(network->ipv4_address,
 						ipv4_addr, ipv4_gw);
@@ -1150,10 +1220,15 @@ static connman_bool_t __set_network_context(
 	if (network->ipv6_address == NULL)
 		return FALSE;
 
-	if (ipv6_addr == NULL)
-		network->ipv6_method = CONNMAN_IPCONFIG_METHOD_OFF;
+	if(ipv6_link_only)
+		network->ipv6_method = CONNMAN_IPCONFIG_METHOD_AUTO;
 	else
 		network->ipv6_method = CONNMAN_IPCONFIG_METHOD_FIXED;
+
+	if (ipv6_addr == NULL)
+		network->ipv6_method = CONNMAN_IPCONFIG_METHOD_OFF;
+
+	connman_network_set_ipv6_method(network->network, network->ipv6_method);
 
 	ipv6_updated = connman_ipaddress_updated(network->ipv6_address,
 						ipv6_addr, ipv6_gw);
@@ -1190,7 +1265,7 @@ static int __add_context(struct connman_device *device, const char *path,
 				DBusMessageIter *prop)
 {
 	char *ident;
-	connman_bool_t active = FALSE;
+	gboolean active = FALSE;
 
 	struct telephony_modem *modem = connman_device_get_data(device);
 	struct connman_network *network;
@@ -1240,7 +1315,7 @@ static int __add_context(struct connman_device *device, const char *path,
 	g_hash_table_insert(network_hash, g_strdup(path), info);
 
 	connman_network_set_available(network, TRUE);
-	connman_network_set_bool(network, "Roaming", modem->s_service->roaming);
+	connman_network_set_bool(network, "Roaming", (bool)modem->s_service->roaming);
 
 	if (connman_device_add_network(device, network) != 0) {
 		g_hash_table_remove(network_hash, path);
@@ -1248,6 +1323,21 @@ static int __add_context(struct connman_device *device, const char *path,
 	}
 
 	active = __set_network_context(info, prop);
+	if(info->routing_only){
+		int err = 0;
+		struct connman_service *routing_service;
+		struct connman_ipconfig *routing_ipconfig;
+
+		if(!active)
+			return TRUE;
+
+		routing_service = connman_service_lookup_from_network(info->network);
+		routing_ipconfig = __connman_service_get_ip4config(routing_service);
+		err = __connman_ipconfig_gateway_add(routing_ipconfig, routing_service);
+
+		DBG("set gateway rv(%d)", err);
+		return TRUE;
+	}
 
 	if (active == TRUE && (connman_network_get_associating(network) == TRUE ||
 			connman_network_get_connecting(network) == TRUE))
@@ -1295,17 +1385,17 @@ static gboolean __changed_modem(DBusConnection *connection,
 
 		DBG("key(%s), value(%s)", key, tmp);
 
-		if (g_str_equal(key, "powered") == TRUE) {
+		if (g_strcmp0(key, "powered") == 0) {
 			modem->powered = STRING2BOOL(tmp);
-		} else if (g_str_equal(key, "operator") == TRUE) {
+		} else if (g_strcmp0(key, "operator") == 0) {
 			modem->operator = g_strdup(tmp);
-		} else if (g_str_equal(key, "sim_init") == TRUE) {
+		} else if (g_strcmp0(key, "sim_init") == 0) {
 			modem->sim_init = STRING2BOOL(tmp);
-		} else if (g_str_equal(key, "flight_mode") == TRUE) {
+		} else if (g_strcmp0(key, "flight_mode") == 0) {
 			modem->flight_mode = STRING2BOOL(tmp);
-		} else if (g_str_equal(key, "roaming_allowed") == TRUE) {
+		} else if (g_strcmp0(key, "roaming_allowed") == 0) {
 			modem->roaming_allowed = STRING2BOOL(tmp);
-		} else if (g_str_equal(key, "data_allowed") == TRUE) {
+		} else if (g_strcmp0(key, "data_allowed") == 0) {
 			modem->data_allowed = STRING2BOOL(tmp);
 		}
 
@@ -1362,7 +1452,7 @@ static gboolean __added_modem(DBusConnection *connection,
 
 		DBG("key (%s) value(%s)", key, value);
 
-		if (g_str_equal(key, "path") == TRUE)
+		if (g_strcmp0(key, "path") == 0)
 			modem_path = g_strdup(value);
 
 		dbus_message_iter_next(&tmp);
@@ -1437,11 +1527,11 @@ static gboolean __changed_service(DBusConnection *connection,
 
 		DBG("key(%s), value(%s)", key, tmp);
 
-		if (g_str_equal(key, "roaming") == TRUE) {
+		if (g_strcmp0(key, "roaming") == 0) {
 			s_service->roaming = STRING2BOOL(tmp);
-		} else if (g_str_equal(key, "act") == TRUE) {
+		} else if (g_strcmp0(key, "act") == 0) {
 			s_service->act = g_strdup(tmp);
-		} else if (g_str_equal(key, "ps_attached") == TRUE) {
+		} else if (g_strcmp0(key, "ps_attached") == 0) {
 			s_service->ps_attached = STRING2BOOL(tmp);
 		}
 
@@ -1489,7 +1579,7 @@ static gboolean __added_service(DBusConnection *connection,
 
 		DBG("key (%s) value(%s)", key, value);
 
-		if (g_str_equal(key, "path") == TRUE)
+		if (g_strcmp0(key, "path") == 0)
 			service_path = value;
 
 		dbus_message_iter_next(&tmp);
@@ -1523,7 +1613,7 @@ static gboolean __removed_service(DBusConnection *connection,
 static gboolean __changed_context(DBusConnection *connection,
 					DBusMessage *message, void *user_data)
 {
-	connman_bool_t active = FALSE;
+	gboolean active = FALSE;
 	DBusMessageIter args, dict;
 	struct telephony_network *info;
 	const char *path = dbus_message_get_path(message);
@@ -1547,13 +1637,27 @@ static gboolean __changed_context(DBusConnection *connection,
 	dbus_message_iter_recurse(&args, &dict);
 
 	active = __set_network_context(info, &dict);
+	if(info->routing_only){
+		int err = 0;
+		struct connman_service *routing_service;
+		struct connman_ipconfig *routing_ipconfig;
+
+		if(!active)
+			return TRUE;
+
+		routing_service = connman_service_lookup_from_network(info->network);
+		routing_ipconfig = __connman_service_get_ip4config(routing_service);
+		err = __connman_ipconfig_gateway_add(routing_ipconfig, routing_service);
+
+		DBG("set gateway rv(%d)", err);
+		return TRUE;
+	}
 
 	__set_network_connected(info, active);
 
 	if (active == FALSE &&
-			connman_network_get_associating(info->network) == TRUE)
-		connman_network_set_error(info->network,
-					CONNMAN_NETWORK_ERROR_ASSOCIATE_FAIL);
+			connman_network_get_connecting(info->network) == TRUE)
+		connman_network_set_connected(info->network, FALSE);
 
 	return TRUE;
 }
@@ -1598,7 +1702,7 @@ static gboolean __added_context(DBusConnection *connection,
 
 		DBG("key (%s) value(%s)", key, value);
 
-		if (g_str_equal(key, "path") == TRUE)
+		if (g_strcmp0(key, "path") == 0)
 			network_path = g_strdup(value);
 
 		dbus_message_iter_next(&tmp);
@@ -1635,17 +1739,33 @@ static gboolean __removed_context(DBusConnection *connection,
 	return TRUE;
 }
 
+static gboolean __changed_default_subscription(DBusConnection *connection,
+		DBusMessage *message, void *user_data)
+{
+	DBusMessageIter args;
+
+	DBG("message signature (%s)", dbus_message_get_signature(message));
+	if (dbus_message_iter_init(message, &args) == FALSE)
+		return TRUE;
+
+	dbus_message_iter_get_basic(&args, &telephony_default_subscription_id);
+	DBG("default subscription: %d", telephony_default_subscription_id);
+
+	return TRUE;
+}
+
 /* telephony initialization */
-static guint watch;
-static guint modem_watch;
-static guint modem_added_watch;
-static guint modem_removed_watch;
-static guint service_watch;
-static guint service_added_watch;
-static guint service_removed_watch;
-static guint context_watch;
-static guint context_added_watch;
-static guint context_removed_watch;
+static guint watch = 0;
+static guint modem_watch = 0;
+static guint modem_added_watch = 0;
+static guint modem_removed_watch = 0;
+static guint service_watch = 0;
+static guint service_added_watch = 0;
+static guint service_removed_watch = 0;
+static guint context_watch = 0;
+static guint context_added_watch = 0;
+static guint context_removed_watch = 0;
+static guint default_subscription_watch = 0;
 
 static int telephony_init(void)
 {
@@ -1665,16 +1785,19 @@ static int telephony_init(void)
 	modem_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
 						PS_MODEM_INTERFACE,
 						PROPERTY_CHANGED,
-						__changed_modem, NULL, NULL);
+						__changed_modem,
+						NULL, NULL);
 
 	modem_added_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
 						PS_MASTER_INTERFACE,
-						MODEM_ADDED, __added_modem,
+						MODEM_ADDED,
+						__added_modem,
 						NULL, NULL);
 
 	modem_removed_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
 						PS_MASTER_INTERFACE,
-						MODEM_REMOVED, __removed_modem,
+						MODEM_REMOVED,
+						__removed_modem,
 						NULL, NULL);
 
 	service_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
@@ -1685,7 +1808,8 @@ static int telephony_init(void)
 
 	service_added_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
 						PS_MODEM_INTERFACE,
-						SERVICE_ADDED, __added_service,
+						SERVICE_ADDED,
+						__added_service,
 						NULL, NULL);
 
 	service_removed_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
@@ -1702,7 +1826,8 @@ static int telephony_init(void)
 
 	context_added_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
 						PS_SERVICE_INTERFACE,
-						CONTEXT_ADDED, __added_context,
+						CONTEXT_ADDED,
+						__added_context,
 						NULL, NULL);
 
 	context_removed_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
@@ -1711,12 +1836,19 @@ static int telephony_init(void)
 						__removed_context,
 						NULL, NULL);
 
+	default_subscription_watch = g_dbus_add_signal_watch(connection, NULL, NULL,
+						"org.tizen.telephony.Network",
+						"DefaultDataSubscription",
+						__changed_default_subscription,
+						NULL, NULL);
+
 	if (watch == 0 || modem_watch == 0 || modem_added_watch == 0
 			|| modem_removed_watch == 0 || service_watch == 0
 			|| service_added_watch == 0 || context_watch == 0
 			|| service_removed_watch == 0
 			|| context_added_watch == 0
-			|| context_removed_watch == 0) {
+			|| context_removed_watch == 0
+			|| default_subscription_watch == 0) {
 		err = -EIO;
 		goto remove;
 	}
@@ -1751,6 +1883,7 @@ remove:
 	g_dbus_remove_watch(connection, context_watch);
 	g_dbus_remove_watch(connection, context_added_watch);
 	g_dbus_remove_watch(connection, context_removed_watch);
+	g_dbus_remove_watch(connection, default_subscription_watch);
 
 	dbus_connection_unref(connection);
 	return err;
@@ -1768,6 +1901,7 @@ static void telephony_exit(void)
 	g_dbus_remove_watch(connection, context_watch);
 	g_dbus_remove_watch(connection, context_added_watch);
 	g_dbus_remove_watch(connection, context_removed_watch);
+	g_dbus_remove_watch(connection, default_subscription_watch);
 
 	telephony_disconnect(connection, NULL);
 

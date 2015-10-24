@@ -36,10 +36,26 @@ Methods		dict GetProperties()  [deprecated]
 			Results will be signaled via the ServicesChanged
 			signal from the manager interface.
 
+			In case of P2P technology, results will be signaled
+			via the PeersChanged signal from the manager
+			interface.
+
 Signals		PropertyChanged(string name, variant value)
 
 			This signal indicates a changed value of the given
 			property.
+
+		DhcpConnected(string aptype, string ipaddr,
+					string macaddr, string hostname)
+
+			This signal indicates a station information that
+			has connected to the AP(Access Point).
+
+		DhcpLeaseDeleted(string aptype, string ipaddr,
+					string macaddr, string hostname)
+
+			This signal indicates a station information that
+			has disconnected to the AP(Access Point).
 
 Properties	boolean Powered [readwrite]
 
@@ -50,10 +66,10 @@ Properties	boolean Powered [readwrite]
 
 		boolean Connected [readonly]
 
-			Boolean representing if a technolgy is connected.
+			Boolean representing if a technology is connected.
 
 			This is just a convience property for allowing the
-			UI to easily show if this technolgy has an active
+			UI to easily show if this technology has an active
 			connection or not.
 
 			If this property is True it means that at least one
@@ -93,3 +109,8 @@ Properties	boolean Powered [readwrite]
 			This property is only valid for the WiFi technology,
 			and is then mapped to the WPA pre-shared key clients
 			will have to use in order to establish a connection.
+
+		boolean Hidden [readwrite]
+
+			This option allows to enable or disable the support
+			for the hidden Wi-Fi tethering.

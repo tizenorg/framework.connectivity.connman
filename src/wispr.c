@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2013  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -34,7 +34,7 @@
 #define STATUS_URL_IPV6  "http://ipv6.connman.net/online/status.html"
 
 struct connman_wispr_message {
-	gboolean has_error;
+	bool has_error;
 	const char *current_element;
 	int message_type;
 	int response_code;
@@ -92,18 +92,15 @@ struct connman_wispr_portal {
 	struct connman_wispr_portal_context *ipv6_context;
 };
 
-static gboolean wispr_portal_web_result(GWebResult *result, gpointer user_data);
+static bool wispr_portal_web_result(GWebResult *result, gpointer user_data);
 
 static GHashTable *wispr_portal_list = NULL;
-#if defined TIZEN_EXT
-static struct connman_wispr_portal_context *browser_request_wp_context = NULL;
-#endif
 
 static void connman_wispr_message_init(struct connman_wispr_message *msg)
 {
 	DBG("");
 
-	msg->has_error = FALSE;
+	msg->has_error = false;
 	msg->current_element = NULL;
 
 	msg->message_type = -1;
@@ -130,13 +127,13 @@ static void connman_wispr_message_init(struct connman_wispr_message *msg)
 
 static void free_wispr_routes(struct connman_wispr_portal_context *wp_context)
 {
-	while (wp_context->route_list != NULL) {
+	while (wp_context->route_list) {
 		struct wispr_route *route = wp_context->route_list->data;
 
 		DBG("free route to %s if %d type %d", route->address,
 				route->if_index, wp_context->type);
 
-		switch(wp_context->type) {
+		switch (wp_context->type) {
 		case CONNMAN_IPCONFIG_TYPE_IPV4:
 			connman_inet_del_host_route(route->if_index,
 					route->address);
@@ -146,6 +143,7 @@ static void free_wispr_routes(struct connman_wispr_portal_context *wp_context)
 					route->address);
 			break;
 		case CONNMAN_IPCONFIG_TYPE_UNKNOWN:
+		case CONNMAN_IPCONFIG_TYPE_ALL:
 			break;
 		}
 
@@ -158,14 +156,15 @@ static void free_wispr_routes(struct connman_wispr_portal_context *wp_context)
 	}
 }
 
-static void free_connman_wispr_portal_context(struct connman_wispr_portal_context *wp_context)
+static void free_connman_wispr_portal_context(
+		struct connman_wispr_portal_context *wp_context)
 {
 	DBG("context %p", wp_context);
 
-	if (wp_context == NULL)
+	if (!wp_context)
 		return;
 
-	if (wp_context->wispr_portal != NULL) {
+	if (wp_context->wispr_portal) {
 		if (wp_context->wispr_portal->ipv4_context == wp_context)
 			wp_context->wispr_portal->ipv4_context = NULL;
 
@@ -182,12 +181,12 @@ static void free_connman_wispr_portal_context(struct connman_wispr_portal_contex
 	if (wp_context->timeout > 0)
 		g_source_remove(wp_context->timeout);
 
-	if (wp_context->web != NULL)
+	if (wp_context->web)
 		g_web_unref(wp_context->web);
 
 	g_free(wp_context->redirect_url);
 
-	if (wp_context->wispr_parser != NULL)
+	if (wp_context->wispr_parser)
 		g_web_parser_unref(wp_context->wispr_parser);
 
 	connman_wispr_message_init(&wp_context->wispr_msg);
@@ -198,11 +197,6 @@ static void free_connman_wispr_portal_context(struct connman_wispr_portal_contex
 
 	free_wispr_routes(wp_context);
 
-#if defined TIZEN_EXT
-	if (browser_request_wp_context == wp_context) {
-		browser_request_wp_context = NULL;
-	}
-#endif
 	g_free(wp_context);
 }
 
@@ -217,7 +211,7 @@ static void free_connman_wispr_portal(gpointer data)
 
 	DBG("");
 
-	if (wispr_portal == NULL)
+	if (!wispr_portal)
 		return;
 
 	free_connman_wispr_portal_context(wispr_portal->ipv4_context);
@@ -334,12 +328,11 @@ static void xml_wispr_text_handler(GMarkupParseContext *context,
 	struct connman_wispr_message *msg = user_data;
 	int i;
 
-	if (msg->current_element == NULL)
+	if (!msg->current_element)
 		return;
 
 	for (i = 0; wispr_element_map[i].str; i++) {
-		if (g_str_equal(wispr_element_map[i].str,
-					msg->current_element) == FALSE)
+		if (!g_str_equal(wispr_element_map[i].str, msg->current_element))
 			continue;
 
 		switch (wispr_element_map[i].element) {
@@ -388,7 +381,7 @@ static void xml_wispr_error_handler(GMarkupParseContext *context,
 {
 	struct connman_wispr_message *msg = user_data;
 
-	msg->has_error = TRUE;
+	msg->has_error = true;
 }
 
 static const GMarkupParser xml_wispr_parser_handlers = {
@@ -403,7 +396,7 @@ static void xml_wispr_parser_callback(const char *str, gpointer user_data)
 {
 	struct connman_wispr_portal_context *wp_context = user_data;
 	GMarkupParseContext *parser_context = NULL;
-	gboolean result;
+	bool result;
 
 	DBG("");
 
@@ -413,7 +406,7 @@ static void xml_wispr_parser_callback(const char *str, gpointer user_data)
 
 	result = g_markup_parse_context_parse(parser_context,
 					str, strlen(str), NULL);
-	if (result == TRUE)
+	if (result)
 		g_markup_parse_context_end_parse(parser_context, NULL);
 
 	g_markup_parse_context_free(parser_context);
@@ -442,16 +435,20 @@ static void portal_manage_status(GWebResult *result,
 
 	/* We currently don't do anything with this info */
 	if (g_web_result_get_header(result, "X-ConnMan-Client-IP",
-				&str) == TRUE)
+				&str))
 		connman_info("Client-IP: %s", str);
 
 	if (g_web_result_get_header(result, "X-ConnMan-Client-Country",
-				&str) == TRUE)
+				&str))
 		connman_info("Client-Country: %s", str);
 
 	if (g_web_result_get_header(result, "X-ConnMan-Client-Region",
-				&str) == TRUE)
+				&str))
 		connman_info("Client-Region: %s", str);
+
+	if (g_web_result_get_header(result, "X-ConnMan-Client-Timezone",
+				&str))
+		connman_info("Client-Timezone: %s", str);
 
 	free_connman_wispr_portal_context(wp_context);
 
@@ -459,7 +456,7 @@ static void portal_manage_status(GWebResult *result,
 					CONNMAN_SERVICE_STATE_ONLINE, type);
 }
 
-static gboolean wispr_route_request(const char *address, int ai_family,
+static bool wispr_route_request(const char *address, int ai_family,
 		int if_index, gpointer user_data)
 {
 	int result = -1;
@@ -472,16 +469,16 @@ static gboolean wispr_route_request(const char *address, int ai_family,
 
 	DBG("address %s if %d gw %s", address, if_index, gateway);
 
-	if (gateway == NULL)
-		return FALSE;
+	if (!gateway)
+		return false;
 
 	route = g_try_new0(struct wispr_route, 1);
 	if (route == 0) {
 		DBG("could not create struct");
-		return FALSE;
+		return false;
 	}
 
-	switch(wp_context->type) {
+	switch (wp_context->type) {
 	case CONNMAN_IPCONFIG_TYPE_IPV4:
 		result = connman_inet_add_host_route(if_index, address,
 				gateway);
@@ -491,22 +488,24 @@ static gboolean wispr_route_request(const char *address, int ai_family,
 				gateway);
 		break;
 	case CONNMAN_IPCONFIG_TYPE_UNKNOWN:
+	case CONNMAN_IPCONFIG_TYPE_ALL:
 		break;
 	}
 
 	if (result < 0) {
 		g_free(route);
-		return FALSE;
+		return false;
 	}
 
 	route->address = g_strdup(address);
 	route->if_index = if_index;
 	wp_context->route_list = g_slist_prepend(wp_context->route_list, route);
 
-	return TRUE;
+	return true;
 }
 
-static void wispr_portal_request_portal(struct connman_wispr_portal_context *wp_context)
+static void wispr_portal_request_portal(
+		struct connman_wispr_portal_context *wp_context)
 {
 	DBG("");
 
@@ -520,7 +519,7 @@ static void wispr_portal_request_portal(struct connman_wispr_portal_context *wp_
 		wispr_portal_error(wp_context);
 }
 
-static gboolean wispr_input(const guint8 **data, gsize *length,
+static bool wispr_input(const guint8 **data, gsize *length,
 						gpointer user_data)
 {
 	struct connman_wispr_portal_context *wp_context = user_data;
@@ -548,27 +547,21 @@ static gboolean wispr_input(const guint8 **data, gsize *length,
 	*data = (guint8 *) wp_context->wispr_formdata;
 	*length = count;
 
-	return FALSE;
+	return false;
 }
 
 static void wispr_portal_browser_reply_cb(struct connman_service *service,
-					connman_bool_t authentication_done,
+					bool authentication_done,
 					const char *error, void *user_data)
 {
 	struct connman_wispr_portal_context *wp_context = user_data;
 
 	DBG("");
 
-	if (service == NULL || wp_context == NULL)
+	if (!service || !wp_context)
 		return;
 
-	if (authentication_done == FALSE) {
-#if defined TIZEN_EXT
-		if (wp_context != browser_request_wp_context) {
-			wp_context = NULL;
-			return;
-		}
-#endif
+	if (!authentication_done) {
 		wispr_portal_error(wp_context);
 		free_wispr_routes(wp_context);
 		return;
@@ -579,17 +572,17 @@ static void wispr_portal_browser_reply_cb(struct connman_service *service,
 }
 
 static void wispr_portal_request_wispr_login(struct connman_service *service,
-				connman_bool_t success,
+				bool success,
 				const char *ssid, int ssid_len,
 				const char *username, const char *password,
-				gboolean wps, const char *wpspin,
+				bool wps, const char *wpspin,
 				const char *error, void *user_data)
 {
 	struct connman_wispr_portal_context *wp_context = user_data;
 
 	DBG("");
 
-	if (error != NULL) {
+	if (error) {
 		if (g_strcmp0(error,
 			"net.connman.Agent.Error.LaunchBrowser") == 0) {
 			if (__connman_agent_request_browser(service,
@@ -618,7 +611,7 @@ static void wispr_portal_request_wispr_login(struct connman_service *service,
 	connman_wispr_message_init(&wp_context->wispr_msg);
 }
 
-static gboolean wispr_manage_message(GWebResult *result,
+static bool wispr_manage_message(GWebResult *result,
 			struct connman_wispr_portal_context *wp_context)
 {
 	DBG("Message type: %s (%d)",
@@ -628,21 +621,21 @@ static gboolean wispr_manage_message(GWebResult *result,
 		response_code_to_string(wp_context->wispr_msg.response_code),
 					wp_context->wispr_msg.response_code);
 
-	if (wp_context->wispr_msg.access_procedure != NULL)
+	if (wp_context->wispr_msg.access_procedure)
 		DBG("Access procedure: %s",
 			wp_context->wispr_msg.access_procedure);
-	if (wp_context->wispr_msg.access_location != NULL)
+	if (wp_context->wispr_msg.access_location)
 		DBG("Access location: %s",
 			wp_context->wispr_msg.access_location);
-	if (wp_context->wispr_msg.location_name != NULL)
+	if (wp_context->wispr_msg.location_name)
 		DBG("Location name: %s",
 			wp_context->wispr_msg.location_name);
-	if (wp_context->wispr_msg.login_url != NULL)
+	if (wp_context->wispr_msg.login_url)
 		DBG("Login URL: %s", wp_context->wispr_msg.login_url);
-	if (wp_context->wispr_msg.abort_login_url != NULL)
+	if (wp_context->wispr_msg.abort_login_url)
 		DBG("Abort login URL: %s",
 			wp_context->wispr_msg.abort_login_url);
-	if (wp_context->wispr_msg.logoff_url != NULL)
+	if (wp_context->wispr_msg.logoff_url)
 		DBG("Logoff URL: %s", wp_context->wispr_msg.logoff_url);
 
 	switch (wp_context->wispr_msg.message_type) {
@@ -650,20 +643,13 @@ static gboolean wispr_manage_message(GWebResult *result,
 		DBG("Login required");
 
 		wp_context->wispr_result = CONNMAN_WISPR_RESULT_LOGIN;
-#if defined TIZEN_EXT
-		if (__connman_agent_request_browser(wp_context->service,
-				wispr_portal_browser_reply_cb,
-				wp_context->wispr_msg.login_url,
-				wp_context) != -EINPROGRESS)
-			wispr_portal_error(wp_context);
-		else
-			browser_request_wp_context = wp_context;
-		break;
-#endif
+
 		if (__connman_agent_request_login_input(wp_context->service,
 					wispr_portal_request_wispr_login,
 					wp_context) != -EINPROGRESS)
 			wispr_portal_error(wp_context);
+		else
+			return true;
 
 		break;
 	case 120: /* Falling down */
@@ -682,7 +668,7 @@ static gboolean wispr_manage_message(GWebResult *result,
 
 			wispr_portal_request_portal(wp_context);
 
-			return TRUE;
+			return true;
 		} else
 			wispr_portal_error(wp_context);
 
@@ -691,15 +677,10 @@ static gboolean wispr_manage_message(GWebResult *result,
 		break;
 	}
 
-	return FALSE;
+	return false;
 }
 
-#if defined TIZEN_EXT
-static void internet_unreachable_cb(struct connman_service *service,
-		gboolean retry, void *user_data) {}
-#endif
-
-static gboolean wispr_portal_web_result(GWebResult *result, gpointer user_data)
+static bool wispr_portal_web_result(GWebResult *result, gpointer user_data)
 {
 	struct connman_wispr_portal_context *wp_context = user_data;
 	const char *redirect = NULL;
@@ -716,13 +697,13 @@ static gboolean wispr_portal_web_result(GWebResult *result, gpointer user_data)
 		if (length > 0) {
 			g_web_parser_feed_data(wp_context->wispr_parser,
 								chunk, length);
-			return TRUE;
+			return true;
 		}
 
 		g_web_parser_end_data(wp_context->wispr_parser);
 
 		if (wp_context->wispr_msg.message_type >= 0) {
-			if (wispr_manage_message(result, wp_context) == TRUE)
+			if (wispr_manage_message(result, wp_context))
 				goto done;
 		}
 	}
@@ -732,35 +713,33 @@ static gboolean wispr_portal_web_result(GWebResult *result, gpointer user_data)
 	DBG("status: %03u", status);
 
 	switch (status) {
+	case 000:
+		__connman_agent_request_browser(wp_context->service,
+				wispr_portal_browser_reply_cb,
+				wp_context->status_url, wp_context);
+		break;
 	case 200:
 		if (wp_context->wispr_msg.message_type >= 0)
 			break;
 
 		if (g_web_result_get_header(result, "X-ConnMan-Status",
-						&str) == TRUE) {
+						&str)) {
 			portal_manage_status(result, wp_context);
-			return FALSE;
-		}
-		else
+			return false;
+		} else
 			__connman_agent_request_browser(wp_context->service,
 					wispr_portal_browser_reply_cb,
 					wp_context->redirect_url, wp_context);
-#if defined TIZEN_EXT
-			browser_request_wp_context = wp_context;
-#endif
 
 		break;
 	case 302:
-		if (g_web_supports_tls() == FALSE ||
-				g_web_result_get_header(result, "Location",
-							&redirect) == FALSE) {
+		if (!g_web_supports_tls() ||
+			!g_web_result_get_header(result, "Location",
+							&redirect)) {
 
 			__connman_agent_request_browser(wp_context->service,
 					wispr_portal_browser_reply_cb,
 					wp_context->status_url, wp_context);
-#if defined TIZEN_EXT
-			browser_request_wp_context = wp_context;
-#endif
 			break;
 		}
 
@@ -777,15 +756,16 @@ static gboolean wispr_portal_web_result(GWebResult *result, gpointer user_data)
 	case 404:
 		if (__connman_service_online_check_failed(wp_context->service,
 						wp_context->type) == 0) {
-#if defined TIZEN_EXT
-			__connman_agent_report_error(wp_context->service,
-					"internet-unreachable", internet_unreachable_cb, NULL);
-#endif
 			wispr_portal_error(wp_context);
 			free_connman_wispr_portal_context(wp_context);
-			return FALSE;
+			return false;
 		}
 
+		break;
+	case 505:
+		__connman_agent_request_browser(wp_context->service,
+				wispr_portal_browser_reply_cb,
+				wp_context->status_url, wp_context);
 		break;
 	default:
 		break;
@@ -795,7 +775,7 @@ static gboolean wispr_portal_web_result(GWebResult *result, gpointer user_data)
 	wp_context->request_id = 0;
 done:
 	wp_context->wispr_msg.message_type = -1;
-	return FALSE;
+	return false;
 }
 
 static void proxy_callback(const char *proxy, void *user_data)
@@ -804,12 +784,12 @@ static void proxy_callback(const char *proxy, void *user_data)
 
 	DBG("proxy %s", proxy);
 
-	if (wp_context == NULL)
+	if (!wp_context)
 		return;
 
 	wp_context->token = 0;
 
-	if (proxy != NULL && g_strcmp0(proxy, "DIRECT") != 0) {
+	if (proxy && g_strcmp0(proxy, "DIRECT") != 0) {
 		if (g_str_has_prefix(proxy, "PROXY")) {
 			proxy += 5;
 			for (; *proxy == ' ' && *proxy != '\0'; proxy++);
@@ -862,17 +842,18 @@ static int wispr_portal_detect(struct connman_wispr_portal_context *wp_context)
 	case CONNMAN_SERVICE_TYPE_WIFI:
 	case CONNMAN_SERVICE_TYPE_BLUETOOTH:
 	case CONNMAN_SERVICE_TYPE_CELLULAR:
+	case CONNMAN_SERVICE_TYPE_GADGET:
 		break;
 	case CONNMAN_SERVICE_TYPE_UNKNOWN:
 	case CONNMAN_SERVICE_TYPE_SYSTEM:
 	case CONNMAN_SERVICE_TYPE_GPS:
 	case CONNMAN_SERVICE_TYPE_VPN:
-	case CONNMAN_SERVICE_TYPE_GADGET:
+	case CONNMAN_SERVICE_TYPE_P2P:
 		return -EOPNOTSUPP;
 	}
 
 	interface = connman_service_get_interface(wp_context->service);
-	if (interface == NULL)
+	if (!interface)
 		return -EINVAL;
 
 	DBG("interface %s", interface);
@@ -885,14 +866,14 @@ static int wispr_portal_detect(struct connman_wispr_portal_context *wp_context)
 	}
 
 	nameservers = connman_service_get_nameservers(wp_context->service);
-	if (nameservers == NULL) {
+	if (!nameservers) {
 		DBG("Could not get nameservers");
 		err = -EINVAL;
 		goto done;
 	}
 
 	wp_context->web = g_web_new(if_index);
-	if (wp_context->web == NULL) {
+	if (!wp_context->web) {
 		DBG("Could not set up GWeb");
 		err = -ENOMEM;
 		goto done;
@@ -909,7 +890,7 @@ static int wispr_portal_detect(struct connman_wispr_portal_context *wp_context)
 		wp_context->status_url = STATUS_URL_IPV6;
 	}
 
-	for (i = 0; nameservers[i] != NULL; i++)
+	for (i = 0; nameservers[i]; i++)
 		g_web_add_nameserver(wp_context->web, nameservers[i]);
 
 	proxy_method = connman_service_get_proxy_method(wp_context->service);
@@ -945,12 +926,7 @@ int __connman_wispr_start(struct connman_service *service,
 
 	DBG("service %p", service);
 
-#if defined TIZEN_EXT
-	if (connman_service_get_type(service) == CONNMAN_SERVICE_TYPE_CELLULAR)
-		return -EPERM;
-#endif
-
-	if (wispr_portal_list == NULL)
+	if (!wispr_portal_list)
 		return -EINVAL;
 
 	index = __connman_service_get_index(service);
@@ -959,9 +935,9 @@ int __connman_wispr_start(struct connman_service *service,
 
 	wispr_portal = g_hash_table_lookup(wispr_portal_list,
 					GINT_TO_POINTER(index));
-	if (wispr_portal == NULL) {
+	if (!wispr_portal) {
 		wispr_portal = g_try_new0(struct connman_wispr_portal, 1);
-		if (wispr_portal == NULL)
+		if (!wispr_portal)
 			return -ENOMEM;
 
 		g_hash_table_replace(wispr_portal_list,
@@ -976,11 +952,11 @@ int __connman_wispr_start(struct connman_service *service,
 		return -EINVAL;
 
 	/* If there is already an existing context, we wipe it */
-	if (wp_context != NULL)
+	if (wp_context)
 		free_connman_wispr_portal_context(wp_context);
 
 	wp_context = create_wispr_portal_context();
-	if (wp_context == NULL)
+	if (!wp_context)
 		return -ENOMEM;
 
 	wp_context->service = service;
@@ -1001,7 +977,7 @@ void __connman_wispr_stop(struct connman_service *service)
 
 	DBG("service %p", service);
 
-	if (wispr_portal_list == NULL)
+	if (!wispr_portal_list)
 		return;
 
 	index = __connman_service_get_index(service);

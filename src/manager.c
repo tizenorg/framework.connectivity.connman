@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2013  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -27,23 +27,25 @@
 
 #include <gdbus.h>
 
+#include <connman/agent.h>
+
 #include "connman.h"
 
-static connman_bool_t connman_state_idle;
-static DBusMessage *session_mode_pending = NULL;
+static bool connman_state_idle;
+static dbus_bool_t sessionmode;
 
 static DBusMessage *get_properties(DBusConnection *conn,
 					DBusMessage *msg, void *data)
 {
 	DBusMessage *reply;
 	DBusMessageIter array, dict;
-	connman_bool_t offlinemode, sessionmode;
+	dbus_bool_t offlinemode;
 	const char *str;
 
 	DBG("conn %p", conn);
 
 	reply = dbus_message_new_method_return(msg);
-	if (reply == NULL)
+	if (!reply)
 		return NULL;
 
 	dbus_message_iter_init_append(reply, &array);
@@ -58,7 +60,6 @@ static DBusMessage *get_properties(DBusConnection *conn,
 	connman_dbus_dict_append_basic(&dict, "OfflineMode",
 					DBUS_TYPE_BOOLEAN, &offlinemode);
 
-	sessionmode = __connman_session_mode();
 	connman_dbus_dict_append_basic(&dict, "SessionMode",
 					DBUS_TYPE_BOOLEAN,
 					&sessionmode);
@@ -77,7 +78,7 @@ static DBusMessage *set_property(DBusConnection *conn,
 
 	DBG("conn %p", conn);
 
-	if (dbus_message_iter_init(msg, &iter) == FALSE)
+	if (!dbus_message_iter_init(msg, &iter))
 		return __connman_error_invalid_arguments(msg);
 
 	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_STRING)
@@ -93,32 +94,35 @@ static DBusMessage *set_property(DBusConnection *conn,
 
 	type = dbus_message_iter_get_arg_type(&value);
 
-	if (g_str_equal(name, "OfflineMode") == TRUE) {
-		connman_bool_t offlinemode;
+	if (g_str_equal(name, "OfflineMode")) {
+		dbus_bool_t offlinemode;
 
 		if (type != DBUS_TYPE_BOOLEAN)
 			return __connman_error_invalid_arguments(msg);
 
 		dbus_message_iter_get_basic(&value, &offlinemode);
 
+		if (offlinemode) {
+			uid_t uid;
+			if (connman_dbus_get_connection_unix_user_sync(conn,
+						dbus_message_get_sender(msg),
+						&uid) < 0) {
+				DBG("Can not get unix user id!");
+				return __connman_error_permission_denied(msg);
+			}
+
+			if (!__connman_service_is_user_allowed(CONNMAN_SERVICE_TYPE_WIFI, uid)) {
+				DBG("Not allow this user to turn on offlinemode now!");
+				return __connman_error_permission_denied(msg);
+			}
+		}
 		__connman_technology_set_offlinemode(offlinemode);
-	} else if (g_str_equal(name, "SessionMode") == TRUE) {
-		connman_bool_t sessionmode;
+	} else if (g_str_equal(name, "SessionMode")) {
 
 		if (type != DBUS_TYPE_BOOLEAN)
 			return __connman_error_invalid_arguments(msg);
 
 		dbus_message_iter_get_basic(&value, &sessionmode);
-
-		if (session_mode_pending != NULL)
-			return __connman_error_in_progress(msg);
-
-		__connman_session_set_mode(sessionmode);
-
-		if (sessionmode == TRUE && connman_state_idle == FALSE) {
-			session_mode_pending = msg;
-			return NULL;
-		}
 
 	} else
 		return __connman_error_invalid_property(msg);
@@ -139,7 +143,7 @@ static DBusMessage *get_technologies(DBusConnection *conn,
 	DBG("");
 
 	reply = dbus_message_new_method_return(msg);
-	if (reply == NULL)
+	if (!reply)
 		return NULL;
 
 	__connman_dbus_append_objpath_dict_array(reply,
@@ -159,7 +163,7 @@ static DBusMessage *remove_provider(DBusConnection *conn,
 	dbus_message_get_args(msg, NULL, DBUS_TYPE_OBJECT_PATH, &path,
 							DBUS_TYPE_INVALID);
 
-	err = __connman_provider_remove(path);
+	err = __connman_provider_remove_by_path(path);
 	if (err < 0)
 		return __connman_error_failed(msg, -err);
 
@@ -168,28 +172,15 @@ static DBusMessage *remove_provider(DBusConnection *conn,
 
 static DBusConnection *connection = NULL;
 
-static void session_mode_notify(void)
-{
-	DBusMessage *reply;
-
-	reply = g_dbus_create_reply(session_mode_pending, DBUS_TYPE_INVALID);
-	g_dbus_send_message(connection, reply);
-
-	dbus_message_unref(session_mode_pending);
-	session_mode_pending = NULL;
-}
-
-static void idle_state(connman_bool_t idle)
+static void idle_state(bool idle)
 {
 
 	DBG("idle %d", idle);
 
 	connman_state_idle = idle;
 
-	if (connman_state_idle == FALSE || session_mode_pending == NULL)
+	if (!connman_state_idle)
 		return;
-
-	session_mode_notify();
 }
 
 static struct connman_notifier technology_notifier = {
@@ -208,16 +199,32 @@ static DBusMessage *get_services(DBusConnection *conn,
 {
 	DBusMessage *reply;
 
-#if defined TIZEN_EXT
-	DBG("conn %p", conn);
-#endif
 	reply = dbus_message_new_method_return(msg);
-	if (reply == NULL)
+	if (!reply)
 		return NULL;
 
 	__connman_dbus_append_objpath_dict_array(reply,
 			append_service_structs, NULL);
 
+	return reply;
+}
+
+static void append_peer_structs(DBusMessageIter *iter, void *user_data)
+{
+	__connman_peer_list_struct(iter);
+}
+
+static DBusMessage *get_peers(DBusConnection *conn,
+					DBusMessage *msg, void *data)
+{
+	DBusMessage *reply;
+
+	reply = dbus_message_new_method_return(msg);
+	if (!reply)
+		return NULL;
+
+	__connman_dbus_append_objpath_dict_array(reply,
+					append_peer_structs, NULL);
 	return reply;
 }
 
@@ -227,13 +234,6 @@ static DBusMessage *connect_provider(DBusConnection *conn,
 	int err;
 
 	DBG("conn %p", conn);
-
-	if (__connman_session_mode() == TRUE) {
-		connman_info("Session mode enabled: "
-				"direct provider connect disabled");
-
-		return __connman_error_failed(msg, EINVAL);
-	}
 
 	err = __connman_provider_create_and_connect(msg);
 	if (err < 0)
@@ -255,7 +255,7 @@ static DBusMessage *register_agent(DBusConnection *conn,
 	dbus_message_get_args(msg, NULL, DBUS_TYPE_OBJECT_PATH, &path,
 							DBUS_TYPE_INVALID);
 
-	err = __connman_agent_register(sender, path);
+	err = connman_agent_register(sender, path);
 	if (err < 0)
 		return __connman_error_failed(msg, -err);
 
@@ -275,7 +275,7 @@ static DBusMessage *unregister_agent(DBusConnection *conn,
 	dbus_message_get_args(msg, NULL, DBUS_TYPE_OBJECT_PATH, &path,
 							DBUS_TYPE_INVALID);
 
-	err = __connman_agent_unregister(sender, path);
+	err = connman_agent_unregister(sender, path);
 	if (err < 0)
 		return __connman_error_failed(msg, -err);
 
@@ -394,6 +394,126 @@ static DBusMessage *release_private_network(DBusConnection *conn,
 	return g_dbus_create_reply(msg, DBUS_TYPE_INVALID);
 }
 
+static int parse_peers_service_specs(DBusMessageIter *array,
+			const unsigned char **spec, int *spec_len,
+			const unsigned char **query, int *query_len,
+			int *version)
+{
+	*spec = *query = NULL;
+	*spec_len = *query_len = *version = 0;
+
+	while (dbus_message_iter_get_arg_type(array) ==
+							DBUS_TYPE_DICT_ENTRY) {
+		DBusMessageIter entry, inter, value;
+		const char *key;
+
+		dbus_message_iter_recurse(array, &entry);
+		dbus_message_iter_get_basic(&entry, &key);
+
+		dbus_message_iter_next(&entry);
+
+		dbus_message_iter_recurse(&entry, &inter);
+
+		if  (!g_strcmp0(key, "BonjourResponse")) {
+			dbus_message_iter_recurse(&inter, &value);
+			dbus_message_iter_get_fixed_array(&value,
+							spec, spec_len);
+		} else if (!g_strcmp0(key, "BonjourQuery")) {
+			dbus_message_iter_recurse(&inter, &value);
+			dbus_message_iter_get_fixed_array(&value,
+							query, query_len);
+		} else if (!g_strcmp0(key, "UpnpService")) {
+			dbus_message_iter_get_basic(&inter, spec);
+			*spec_len = strlen((const char *)*spec)+1;
+		} else if (!g_strcmp0(key, "UpnpVersion")) {
+			dbus_message_iter_get_basic(&inter, version);
+		} else if (!g_strcmp0(key, "WiFiDisplayIEs")) {
+			if (*spec || *query)
+				return -EINVAL;
+
+			dbus_message_iter_recurse(&inter, &value);
+			dbus_message_iter_get_fixed_array(&value,
+							spec, spec_len);
+		} else
+			return -EINVAL;
+
+		dbus_message_iter_next(array);
+	}
+
+	if ((*query && !*spec && !*version) ||
+				(!*spec && !*query) || (!*spec && *version))
+		return -EINVAL;
+
+	return 0;
+}
+
+static DBusMessage *register_peer_service(DBusConnection *conn,
+						DBusMessage *msg, void *data)
+{
+	const unsigned char *spec, *query;
+	DBusMessageIter iter, array;
+	int spec_len, query_len;
+	dbus_bool_t master;
+	const char *owner;
+	int version;
+	int ret;
+
+	DBG("");
+
+	owner = dbus_message_get_sender(msg);
+
+	dbus_message_iter_init(msg, &iter);
+	dbus_message_iter_recurse(&iter, &array);
+
+	ret = parse_peers_service_specs(&array, &spec, &spec_len,
+						&query, &query_len, &version);
+	if (ret)
+		goto error;
+
+	dbus_message_iter_next(&iter);
+	dbus_message_iter_get_basic(&iter, &master);
+
+	ret = __connman_peer_service_register(owner, msg, spec, spec_len,
+					query, query_len, version,master);
+	if (!ret)
+		return g_dbus_create_reply(msg, DBUS_TYPE_INVALID);
+	if (ret == -EINPROGRESS)
+		return NULL;
+error:
+	return __connman_error_failed(msg, -ret);
+}
+
+static DBusMessage *unregister_peer_service(DBusConnection *conn,
+						DBusMessage *msg, void *data)
+{
+	const unsigned char *spec, *query;
+	DBusMessageIter iter, array;
+	int spec_len, query_len;
+	const char *owner;
+	int version;
+	int ret;
+
+	DBG("");
+
+	owner = dbus_message_get_sender(msg);
+
+	dbus_message_iter_init(msg, &iter);
+	dbus_message_iter_recurse(&iter, &array);
+
+	ret = parse_peers_service_specs(&array, &spec, &spec_len,
+						&query, &query_len, &version);
+	if (ret)
+		goto error;
+
+	ret = __connman_peer_service_unregister(owner, spec, spec_len,
+						query, query_len, version);
+	if (!ret)
+		return g_dbus_create_reply(msg, DBUS_TYPE_INVALID);
+error:
+	return __connman_error_failed(msg, -ret);
+
+}
+
 static const GDBusMethodTable manager_methods[] = {
 	{ GDBUS_METHOD("GetProperties",
 			NULL, GDBUS_ARGS({ "properties", "a{sv}" }),
@@ -404,13 +524,16 @@ static const GDBusMethodTable manager_methods[] = {
 	{ GDBUS_METHOD("GetTechnologies",
 			NULL, GDBUS_ARGS({ "technologies", "a(oa{sv})" }),
 			get_technologies) },
-	{ GDBUS_METHOD("RemoveProvider",
+	{ GDBUS_DEPRECATED_METHOD("RemoveProvider",
 			GDBUS_ARGS({ "provider", "o" }), NULL,
 			remove_provider) },
 	{ GDBUS_METHOD("GetServices",
 			NULL, GDBUS_ARGS({ "services", "a(oa{sv})" }),
 			get_services) },
-	{ GDBUS_ASYNC_METHOD("ConnectProvider",
+	{ GDBUS_METHOD("GetPeers",
+			NULL, GDBUS_ARGS({ "peers", "a(oa{sv})" }),
+			get_peers) },
+	{ GDBUS_DEPRECATED_ASYNC_METHOD("ConnectProvider",
 			      GDBUS_ARGS({ "provider", "a{sv}" }),
 			      GDBUS_ARGS({ "path", "o" }),
 			      connect_provider) },
@@ -427,7 +550,7 @@ static const GDBusMethodTable manager_methods[] = {
 	{ GDBUS_METHOD("UnregisterCounter",
 			GDBUS_ARGS({ "path", "o" }), NULL,
 			unregister_counter) },
-	{ GDBUS_METHOD("CreateSession",
+	{ GDBUS_ASYNC_METHOD("CreateSession",
 			GDBUS_ARGS({ "settings", "a{sv}" },
 						{ "notifier", "o" }),
 			GDBUS_ARGS({ "session", "o" }),
@@ -443,6 +566,13 @@ static const GDBusMethodTable manager_methods[] = {
 	{ GDBUS_METHOD("ReleasePrivateNetwork",
 			GDBUS_ARGS({ "path", "o" }), NULL,
 			release_private_network) },
+	{ GDBUS_ASYNC_METHOD("RegisterPeerService",
+			GDBUS_ARGS({ "specification", "a{sv}" },
+				   { "master", "b" }), NULL,
+			register_peer_service) },
+	{ GDBUS_METHOD("UnregisterPeerService",
+			GDBUS_ARGS({ "specification", "a{sv}" }), NULL,
+			unregister_peer_service) },
 	{ },
 };
 
@@ -457,6 +587,9 @@ static const GDBusSignalTable manager_signals[] = {
 	{ GDBUS_SIGNAL("ServicesChanged",
 			GDBUS_ARGS({ "changed", "a(oa{sv})" },
 					{ "removed", "ao" })) },
+	{ GDBUS_SIGNAL("PeersChanged",
+			GDBUS_ARGS({ "changed", "a(oa{sv})" },
+					{ "removed", "ao" })) },
 	{ },
 };
 
@@ -465,7 +598,7 @@ int __connman_manager_init(void)
 	DBG("");
 
 	connection = connman_dbus_get_connection();
-	if (connection == NULL)
+	if (!connection)
 		return -1;
 
 	if (connman_notifier_register(&technology_notifier) < 0)
@@ -476,7 +609,7 @@ int __connman_manager_init(void)
 					manager_methods,
 					manager_signals, NULL, NULL, NULL);
 
-	connman_state_idle = TRUE;
+	connman_state_idle = true;
 
 	return 0;
 }
@@ -485,7 +618,7 @@ void __connman_manager_cleanup(void)
 {
 	DBG("");
 
-	if (connection == NULL)
+	if (!connection)
 		return;
 
 	connman_notifier_unregister(&technology_notifier);

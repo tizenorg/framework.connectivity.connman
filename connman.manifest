@@ -10,21 +10,32 @@
 			<smack request="system::use_internet" type="rw"/>
 			<smack request="dbus" type="rwx"/>
 			<smack request="net-config" type="rwx"/>
+			<smack request="net-config::logging" type="rwx"/>
 			<smack request="wpasupplicant" type="rwx"/>
 			<smack request="telephony_framework::api_private" type="rwx"/>
 			<smack request="telephony_framework::api_ps_public" type="rwx"/>
 			<smack request="telephony_framework::api_ps_private" type="rwx"/>
 			<smack request="telephony_framework::api_ps_profile" type="rwx"/>
+			<smack request="tizen::vconf::public::r" type="rl"/>
+			<smack request="device::sys_logging" type="w"/>
+			<smack request="device::app_logging" type="w"/>
+			<smack request="push-service" type="w"/>
+			<smack request="systemd" type="rw"/>
+			<smack request="_" type="rwx"/>
+			<smack request="sdbd" type="rwx"/>
+			<smack request="download-provider" type="w"/>
 		</request>
 		<permit>
 			<smack permit="dbus" type="rwx"/>
+			<smack permit="sdbd" type="rwx"/>
 			<smack permit="system::use_internet" type="rw"/>
+			<smack permit="telephony_framework" type="rw"/>
 		</permit>
 	</define>
 	<assign>
 		<filesystem path="/usr/lib/systemd/system/connman.service" label="_"/>
 		<filesystem path="/usr/lib/systemd/system/multi-user.target.wants/connman.service" label="_"/>
-		<filesystem path="/usr/share/dbus-1/services/net.connman.service" label="_"/>
+		<filesystem path="/usr/share/dbus-1/system-services/net.connman.service" label="_"/>
 		<filesystem path="/usr/sbin/connman.service" label="_" exec_label="none"/>
 		<filesystem path="/usr/share/license/connman" label="_"/>
 		<dbus name="net.connman" own="connman" bus="system">

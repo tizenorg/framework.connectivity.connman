@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2013  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -22,7 +22,9 @@
 #ifndef __CONNMAN_NETWORK_H
 #define __CONNMAN_NETWORK_H
 
-#include <connman/types.h>
+#include <stdbool.h>
+#include <stdint.h>
+
 #include <connman/device.h>
 #include <connman/ipconfig.h>
 
@@ -43,6 +45,7 @@ enum connman_network_type {
 	CONNMAN_NETWORK_TYPE_BLUETOOTH_PAN = 8,
 	CONNMAN_NETWORK_TYPE_BLUETOOTH_DUN = 9,
 	CONNMAN_NETWORK_TYPE_CELLULAR      = 10,
+	CONNMAN_NETWORK_TYPE_GADGET        = 11,
 	CONNMAN_NETWORK_TYPE_VENDOR        = 10000,
 };
 
@@ -52,9 +55,6 @@ enum connman_network_error {
 	CONNMAN_NETWORK_ERROR_CONFIGURE_FAIL  = 2,
 	CONNMAN_NETWORK_ERROR_INVALID_KEY     = 3,
 	CONNMAN_NETWORK_ERROR_CONNECT_FAIL    = 4,
-#if defined TIZEN_EXT
-	CONNMAN_NETWORK_ERROR_DHCP_FAIL       = 5,
-#endif
 };
 
 #define CONNMAN_NETWORK_PRIORITY_LOW      -100
@@ -88,23 +88,19 @@ void connman_network_set_group(struct connman_network *network,
 						const char *group);
 const char *connman_network_get_group(struct connman_network *network);
 
-connman_bool_t connman_network_get_connecting(struct connman_network *network);
+bool connman_network_get_connecting(struct connman_network *network);
 int connman_network_set_available(struct connman_network *network,
-						connman_bool_t available);
-connman_bool_t connman_network_get_available(struct connman_network *network);
+						bool available);
+bool connman_network_get_available(struct connman_network *network);
 int connman_network_set_associating(struct connman_network *network,
-						connman_bool_t associating);
+						bool associating);
 void connman_network_set_error(struct connman_network *network,
 					enum connman_network_error error);
-#if defined TIZEN_EXT
-void connman_network_clear_associating(struct connman_network *network);
-#endif
-void connman_network_clear_error(struct connman_network *network);
 int connman_network_set_connected(struct connman_network *network,
-						connman_bool_t connected);
-connman_bool_t connman_network_get_connected(struct connman_network *network);
+						bool connected);
+bool connman_network_get_connected(struct connman_network *network);
 
-connman_bool_t connman_network_get_associating(struct connman_network *network);
+bool connman_network_get_associating(struct connman_network *network);
 
 void connman_network_clear_hidden(void *user_data);
 int connman_network_connect_hidden(struct connman_network *network,
@@ -136,6 +132,10 @@ int connman_network_set_enc_mode(struct connman_network *network,
 				const char *encryption_mode);
 const char *connman_network_get_enc_mode(struct connman_network *network);
 
+int connman_network_set_proxy(struct connman_network *network,
+                               const char *proxies);
+
+void connman_network_clear_associating(struct connman_network *network);
 int connman_network_set_is_hs20AP(struct connman_network *network,
 				unsigned int isHS20AP);
 unsigned int connman_network_get_is_hs20AP(struct connman_network *network);
@@ -144,22 +144,22 @@ unsigned int connman_network_get_is_hs20AP(struct connman_network *network);
 int connman_network_set_name(struct connman_network *network,
 							const char *name);
 int connman_network_set_strength(struct connman_network *network,
-						connman_uint8_t strength);
-connman_uint8_t connman_network_get_strength(struct connman_network *network);
+						uint8_t strength);
+uint8_t connman_network_get_strength(struct connman_network *network);
 int connman_network_set_frequency(struct connman_network *network,
-					connman_uint16_t frequency);
-connman_uint16_t connman_network_get_frequency(struct connman_network *network);
+					uint16_t frequency);
+uint16_t connman_network_get_frequency(struct connman_network *network);
 int connman_network_set_wifi_channel(struct connman_network *network,
-					connman_uint16_t channel);
-connman_uint16_t connman_network_get_wifi_channel(struct connman_network *network);
+					uint16_t channel);
+uint16_t connman_network_get_wifi_channel(struct connman_network *network);
 
 int connman_network_set_string(struct connman_network *network,
 					const char *key, const char *value);
 const char *connman_network_get_string(struct connman_network *network,
 							const char *key);
 int connman_network_set_bool(struct connman_network *network,
-					const char *key, connman_bool_t value);
-connman_bool_t connman_network_get_bool(struct connman_network *network,
+					const char *key, bool value);
+bool connman_network_get_bool(struct connman_network *network,
 							const char *key);
 int connman_network_set_blob(struct connman_network *network,
 			const char *key, const void *data, unsigned int size);

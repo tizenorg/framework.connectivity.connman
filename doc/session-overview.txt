@@ -5,82 +5,20 @@ Session API
 Connection management algorithm basics
 ======================================
 
-When a session is created, a sorted list of services is added to the
-session. The services are filtered and stable sorted according
-following rules:
+The Session core uses the normal auto-connect algorithm for selecting
+which services will be connected or disconnected. That means only
+Services with AutoConnect set to true will be used. The Session
+core will assign a connected Service to a Session if the Service
+is matching the AllowedBearer filter.
 
- - AllowedBearers (filter and sort)
- - RoamingPolicy (filter and sort)
-
-A stable sorting algorithm maintains the relative order.
-
-If a service is removed or added all sessions are updated according
-the above rules.
-
-There are three triggers which lead to evaluate the connect
-algorithm:
-
- - Session.Connect()
- - PeriodicConnect
- - Offline
-
-Connect algorithm:
-
-              Session.Connect()     Offline
-              PeriodicConnect        |
-                       | Yes  +------+-------+  No
-                       +------+StayConnected?+------ Do nothing
-                       |      +--------------+
-Session.Change() ------+
-                       |
-                +------+-------+
-          +-----+EmergencyCall?+-----+
-       Yes|     +--------------+     |No
-          |                          |
-        Connect to            +--------------+
-        first available   +---+AvoidHandover?+---+
-        Service           |   +--------------+   |
-                       Yes|                      |No
-                 +----------------+              |
-             +---+In service_list +---+          |
-          Yes|   |and online?     |   |No        |
-             |   +----------------+   |          |
-             |                        |          |
-         Take that one                Take first in
-                                      the service list
-
-There are two triggers which lead to evaluate the disconnect
-algorithm
-
- - Session.Disconnect()
- - IdleTimeout
-
-Disconnect algorithm:
-
-  Session.Disconnect()
-  IdleTimeout
-       |
-       +--- Session.Change()
-       |
-+-----------------+    Yes
-|service not used +-------------+
-|by other session?|             |
-+------.----------+             |
-       |No                      |
-       |                        |
-    Service.Disconnect()   Do nothing
+By using the normal auto-connect algorithm, it is possible to
+use the Session API and the Service API at the same time.
 
 
 Session States and Transitions
 ==============================
 
-There are three main strategies for state changes.
-
- - Free Ride
- - Connect
- - Disconnect
-
-The initial state for all new sessions is Free Ride.
+There is only one state which is called Free Ride.
 
 The Free Ride state means that a session will go online if a matching
 service goes online without calling Service.Connect() itself. The idea
@@ -88,54 +26,69 @@ behind this is that a session doesn't request a connection for itself
 instead waits until another session actively requires to go online.
 This is comparable to piggy-backing.
 
-When a session is in the Connect state ConnMan tries to find a
-matching service (see Connect algorithm) and then decides either to
-connect the service or delay the request. ConnMan is allowed to
-connect to the service or to delay it, e.g. group PeriodicConnects
-together. The session will leave the Connect state when the service
-goes offline unless StayConnected is True. It will enter the Free Ride
-mode again.
-
-When the application calls Disconnect() the session enters the
-Disconnect state and stays there until the application calls Connect()
-again.
+Connnect()
+ +------+
+ |      v
++------------+
+|  Free Ride |
++------------+
+  |     ^
+  +-----+
+ Disconnect()
 
 
-                 State Change to offline & StayConnected = True
-                              +------+
-                              |      v
-+-----------+                +---------+ -- Disconnect() --> +------------+
-| Free Ride |-- Connect() -->| Connect |                     | Disconnect |
-+-----------+                +---------+  <-- Connect() ---  +------------+
-      |  ^                         |                               ^
-      |  +------------------------ +                               |
-      |   State Change to offline & StayConnected = False          |
-      |                                                            |
-      |                                                            |
-      +----------------------- Disconnect() -----------------------+
-
-Note: this documents the current behavior it is likely to change in near
-future.
+If an application wants to stay offline it can set an empty
+AllowedBearers list.
 
 
-Additional Information on Settings
+Session application identification
 ==================================
 
-PeriodicConnect and IdleTimeout
--------------------------------
+Application using session can be identified through different means.
 
-If an application wants to go online periodically (e.g. checking for
-new mails) then the application should use PeriodicConnect instead of
-calling Session.Connect() periodically. There is no need for the
-application to maintain timers. ConnMan is also able to try to combine
-several PeriodicConnect calls into one. Applications should not rely on a
-very precise periodic connect. Apart from merging periodic connect
-timeouts there is also the problem that no service might be available
-at that point and ConnMan will defer the connect call.
+  - SELinux
+  - UID
+  - GID
 
-The IdleTimeout tells ConnMan when a link is idle for given period it
-is okay to disonnect.
+ConnMan will try to identify the application in the given order above.
+If SELinux is not supported by the system or not configured, ConnMan
+will ignore it and fallback asking the D-Bus daemon about the UID of
+the application.
 
-PeriodicConnect and IdleTimeout should only consired as hints. ConnMan
-will try to meet them but there is no garantee for doing so. For
-example global settings have precedence over session settings.
+The identification is only useful in combination with the policy plugin.
+
+
+Policy Plugin
+=============
+
+The policy plugin allows the administrator to provision/configure
+sessions. Each policy needs an application identification in order to
+match the policy to a session.
+
+See session-policy-format.txt for more details.
+
+
+Per application routing
+=======================
+
+For each session a policy routing table is maintained. Each policy
+routing table contains a default route to the selected service.
+
+Per session iptables rules:
+
+iptables -t mangle -A OUTPUT -m owner [--uid-owner|--gid-owner] $OWNER \
+	  -j MARK --set-mark $MARK
+
+Global rules for all sessions:
+
+iptables -t mangle -A INPUT -j CONNMARK --restore-mark
+iptables -t mangle -A POSTROUTING -j CONNMARK --save-mark
+
+Per application routing is only available when policy files are
+used. Without the policy plugin or a valid configuration, the default
+session configuration is applied.
+
+The default session configuration does not enable the per application
+routing. Sessions are still useful in this setup, because the
+notification of sessions is still available, e.g. the online/offline
+notification.

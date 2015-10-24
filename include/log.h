@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2013  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -41,6 +41,14 @@ void connman_error(const char *format, ...)
 void connman_debug(const char *format, ...)
 				__attribute__((format(printf, 1, 2)));
 
+#define connman_warn_once(fmt, arg...) do {		\
+	static bool printed;				\
+	if (!printed) {					\
+		connman_warn(fmt, ## arg);		\
+		printed = true;				\
+	}						\
+} while (0)
+
 struct connman_debug_desc {
 	const char *name;
 	const char *file;
@@ -68,16 +76,6 @@ struct connman_debug_desc {
  * Simple macro around connman_debug() which also include the function
  * name it is called in.
  */
-#if defined TIZEN_EXT
-#define DBG(fmt, arg...) do { \
-	static struct connman_debug_desc __connman_debug_desc \
-	__attribute__((used, section("__debug"), aligned(8))) = { \
-		.file = __FILE__, .flags = CONNMAN_DEBUG_FLAG_DEFAULT, \
-	}; \
-	if (__connman_debug_desc.flags & CONNMAN_DEBUG_FLAG_PRINT) \
-		connman_debug("%s " fmt, __FUNCTION__ , ## arg); \
-} while (0)
-#else
 #define DBG(fmt, arg...) do { \
 	static struct connman_debug_desc __connman_debug_desc \
 	__attribute__((used, section("__debug"), aligned(8))) = { \
@@ -87,7 +85,6 @@ struct connman_debug_desc {
 		connman_debug("%s:%s() " fmt, \
 					__FILE__, __FUNCTION__ , ## arg); \
 } while (0)
-#endif
 
 #ifdef __cplusplus
 }

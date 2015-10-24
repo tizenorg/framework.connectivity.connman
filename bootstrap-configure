@@ -4,10 +4,6 @@ if [ -f config.status ]; then
 	make maintainer-clean
 fi
 
-if [ ! -f doc/gtk-doc.make ]; then
-	gtkdocize --copy --docdir doc
-fi
-
 ./bootstrap && \
     ./configure --enable-maintainer-mode \
 		--enable-debug \
@@ -19,5 +15,6 @@ fi
 		--enable-openconnect=builtin \
 		--enable-openvpn=builtin \
 		--enable-vpnc=builtin \
+		--enable-session-policy-local=builtin \
 		--enable-nmcompat \
 		--enable-polkit $*

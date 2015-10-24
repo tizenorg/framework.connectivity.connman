@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2013  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -71,7 +71,6 @@ static guint update_timeout = 0;
 
 struct interface_data {
 	int index;
-	char *name;
 	char *ident;
 	enum connman_service_type service_type;
 	enum connman_device_type device_type;
@@ -84,33 +83,31 @@ static void free_interface(gpointer data)
 	struct interface_data *interface = data;
 
 	__connman_technology_remove_interface(interface->service_type,
-			interface->index, interface->name, interface->ident);
+			interface->index, interface->ident);
 
 	g_free(interface->ident);
-	g_free(interface->name);
 	g_free(interface);
 }
 
-static connman_bool_t ether_blacklisted(const char *name)
+static bool ether_blacklisted(const char *name)
 {
-	if (name == NULL)
-		return TRUE;
+	if (!name)
+		return true;
 
-	if (__connman_device_isfiltered(name) == TRUE)
-		return TRUE;
+	if (__connman_device_isfiltered(name))
+		return true;
 
-	return FALSE;
+	return false;
 }
 
-#if !defined TIZEN_EXT
-static connman_bool_t wext_interface(char *ifname)
+static bool wext_interface(char *ifname)
 {
 	struct iwreq wrq;
 	int fd, err;
 
 	fd = socket(PF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
 	if (fd < 0)
-		return FALSE;
+		return false;
 
 	memset(&wrq, 0, sizeof(wrq));
 	strncpy(wrq.ifr_name, ifname, sizeof(wrq.ifr_name) - 1);
@@ -120,49 +117,51 @@ static connman_bool_t wext_interface(char *ifname)
 	close(fd);
 
 	if (err < 0)
-		return FALSE;
+		return false;
 
-	return TRUE;
+	return true;
 }
-#endif
 
 #if defined TIZEN_EXT
-static connman_bool_t __connman_rtnl_is_cellular_device(const char *name)
+static bool __connman_rtnl_is_cellular_device(const char *name)
 {
 	char **pattern;
 	char **cellular_interfaces;
 
 	cellular_interfaces =
-			connman_setting_get_string_list("NetworkCellularInterfaceList");
-	if (cellular_interfaces == NULL)
-		return FALSE;
+			connman_setting_get_string_list(
+					"NetworkCellularInterfaceList");
+	if (!cellular_interfaces)
+		return false;
 
 	for (pattern = cellular_interfaces; *pattern; pattern++) {
-		if (g_str_has_prefix(name, *pattern) == TRUE) {
+		if (g_str_has_prefix(name, *pattern)) {
 			DBG("Cellular interface: %s", name);
-			return TRUE;
+			return true;
 		}
 	}
 
-	return FALSE;
+	return false;
 }
 #endif
 
 static void read_uevent(struct interface_data *interface)
 {
-	char *filename, line[128];
-	connman_bool_t found_devtype;
+	char *filename, *name, line[128];
+	bool found_devtype;
 	FILE *f;
 
+	name = connman_inet_ifname(interface->index);
+
 #if defined TIZEN_EXT
-	if (__connman_rtnl_is_cellular_device(interface->name) == TRUE) {
+	if (__connman_rtnl_is_cellular_device(name)) {
 		interface->service_type = CONNMAN_SERVICE_TYPE_CELLULAR;
 		interface->device_type = CONNMAN_DEVICE_TYPE_CELLULAR;
 		return;
 	}
 #endif
 
-	if (ether_blacklisted(interface->name) == TRUE) {
+	if (ether_blacklisted(name)) {
 		interface->service_type = CONNMAN_SERVICE_TYPE_UNKNOWN;
 		interface->device_type = CONNMAN_DEVICE_TYPE_UNKNOWN;
 	} else {
@@ -170,29 +169,31 @@ static void read_uevent(struct interface_data *interface)
 		interface->device_type = CONNMAN_DEVICE_TYPE_ETHERNET;
 	}
 
-	filename = g_strdup_printf("/sys/class/net/%s/uevent",
-						interface->name);
+	filename = g_strdup_printf("/sys/class/net/%s/uevent", name);
 
 	f = fopen(filename, "re");
 
 	g_free(filename);
 
-	if (f == NULL)
-		return;
+	if (!f) {
+		interface->service_type = CONNMAN_SERVICE_TYPE_UNKNOWN;
+		interface->device_type = CONNMAN_DEVICE_TYPE_UNKNOWN;
+		goto out;
+	}
 
-	found_devtype = FALSE;
+	found_devtype = false;
 	while (fgets(line, sizeof(line), f)) {
 		char *pos;
 
 		pos = strchr(line, '\n');
-		if (pos == NULL)
+		if (!pos)
 			continue;
 		pos[0] = '\0';
 
 		if (strncmp(line, "DEVTYPE=", 8) != 0)
 			continue;
 
-		found_devtype = TRUE;
+		found_devtype = true;
 
 		if (strcmp(line + 8, "wlan") == 0) {
 			interface->service_type = CONNMAN_SERVICE_TYPE_WIFI;
@@ -206,6 +207,9 @@ static void read_uevent(struct interface_data *interface)
 		} else if (strcmp(line + 8, "gadget") == 0) {
 			interface->service_type = CONNMAN_SERVICE_TYPE_GADGET;
 			interface->device_type = CONNMAN_DEVICE_TYPE_GADGET;
+		} else if (strcmp(line + 8, "vlan") == 0) {
+			interface->service_type = CONNMAN_SERVICE_TYPE_ETHERNET;
+			interface->device_type = CONNMAN_DEVICE_TYPE_ETHERNET;
 
 		} else {
 			interface->service_type = CONNMAN_SERVICE_TYPE_UNKNOWN;
@@ -216,19 +220,18 @@ static void read_uevent(struct interface_data *interface)
 	fclose(f);
 
 	if (found_devtype)
-		return;
+		goto out;
 
-#if !defined TIZEN_EXT
-	/* TIZEN does not use old wext interface */
 	/* We haven't got a DEVTYPE, let's check if it's a wireless device */
-	if (wext_interface(interface->name)) {
+	if (wext_interface(name)) {
 		interface->service_type = CONNMAN_SERVICE_TYPE_WIFI;
 		interface->device_type = CONNMAN_DEVICE_TYPE_WIFI;
 
-		connman_error("%s runs an unsupported 802.11 driver",
-				interface->name);
+		connman_error("%s runs an unsupported 802.11 driver", name);
 	}
-#endif
+
+out:
+	g_free(name);
 }
 
 enum connman_device_type __connman_rtnl_get_device_type(int index)
@@ -237,7 +240,7 @@ enum connman_device_type __connman_rtnl_get_device_type(int index)
 
 	interface = g_hash_table_lookup(interface_list,
 					GINT_TO_POINTER(index));
-	if (interface == NULL)
+	if (!interface)
 		return CONNMAN_DEVICE_TYPE_UNKNOWN;
 
 	return interface->device_type;
@@ -259,7 +262,7 @@ unsigned int connman_rtnl_add_newlink_watch(int index,
 	struct watch_data *watch;
 
 	watch = g_try_new0(struct watch_data, 1);
-	if (watch == NULL)
+	if (!watch)
 		return 0;
 
 	watch->id = ++watch_id;
@@ -324,7 +327,7 @@ static void trigger_rtnl(int index, void *user_data)
 			__connman_ipconfig_get_gateway_from_index(index,
 					CONNMAN_IPCONFIG_TYPE_ALL);
 
-		if (gateway != NULL)
+		if (gateway)
 			rtnl->newgateway(index, gateway);
 	}
 }
@@ -394,7 +397,7 @@ static const char *operstate2str(unsigned char operstate)
 	return "";
 }
 
-static connman_bool_t extract_link(struct ifinfomsg *msg, int bytes,
+static bool extract_link(struct ifinfomsg *msg, int bytes,
 				struct ether_addr *address, const char **ifname,
 				unsigned int *mtu, unsigned char *operstate,
 				struct rtnl_link_stats *stats)
@@ -405,41 +408,40 @@ static connman_bool_t extract_link(struct ifinfomsg *msg, int bytes,
 					attr = RTA_NEXT(attr, bytes)) {
 		switch (attr->rta_type) {
 		case IFLA_ADDRESS:
-			if (address != NULL)
+			if (address)
 				memcpy(address, RTA_DATA(attr), ETH_ALEN);
 			break;
 		case IFLA_IFNAME:
-			if (ifname != NULL)
+			if (ifname)
 				*ifname = RTA_DATA(attr);
 			break;
 		case IFLA_MTU:
-			if (mtu != NULL)
+			if (mtu)
 				*mtu = *((unsigned int *) RTA_DATA(attr));
 			break;
 		case IFLA_STATS:
-			if (stats != NULL)
+			if (stats)
 				memcpy(stats, RTA_DATA(attr),
 					sizeof(struct rtnl_link_stats));
 			break;
 		case IFLA_OPERSTATE:
-			if (operstate != NULL)
+			if (operstate)
 				*operstate = *((unsigned char *) RTA_DATA(attr));
 			break;
 		case IFLA_LINKMODE:
 			break;
 		case IFLA_WIRELESS:
-			return FALSE;
+			return false;
 		}
 	}
 
-	return TRUE;
+	return true;
 }
 
 static void process_newlink(unsigned short type, int index, unsigned flags,
 			unsigned change, struct ifinfomsg *msg, int bytes)
 {
 	struct ether_addr address = {{ 0, 0, 0, 0, 0, 0 }};
-	struct ether_addr compare = {{ 0, 0, 0, 0, 0, 0 }};
 	struct rtnl_link_stats stats;
 	unsigned char operstate = 0xff;
 	struct interface_data *interface;
@@ -449,13 +451,15 @@ static void process_newlink(unsigned short type, int index, unsigned flags,
 	GSList *list;
 
 	memset(&stats, 0, sizeof(stats));
-	if (extract_link(msg, bytes, &address, &ifname, &mtu, &operstate,
-					&stats) == FALSE)
+	if (!extract_link(msg, bytes, &address, &ifname, &mtu, &operstate, &stats))
 		return;
+
 #if defined TIZEN_EXT
 	/* Do not accept Wi-Fi P2P interface */
-	if (g_strrstr(ifname, "p2p") != NULL)
+	if (g_strrstr(ifname, "p2p") != NULL) {
+		DBG("Newlink event for Wi-Fi P2P interface ignored");
 		return;
+	}
 #endif
 
 	snprintf(ident, 13, "%02x%02x%02x%02x%02x%02x",
@@ -474,6 +478,19 @@ static void process_newlink(unsigned short type, int index, unsigned flags,
 						address.ether_addr_octet[4],
 						address.ether_addr_octet[5]);
 
+	if (flags & IFF_SLAVE) {
+		connman_info("%s {newlink} ignoring slave, index %d address %s",
+						ifname, index, str);
+		return;
+	}
+
+#if defined TIZEN_TV_EXT
+	if (g_strcmp0(ident, "eeeeeeeeeeee") == 0) {
+		DBG("Newlink event with Dummy MAC. Ignored!");
+		return;
+	}
+#endif
+
 	switch (type) {
 	case ARPHRD_ETHER:
 	case ARPHRD_LOOPBACK:
@@ -491,9 +508,8 @@ static void process_newlink(unsigned short type, int index, unsigned flags,
 		break;
 	}
 
-	if (memcmp(&address, &compare, ETH_ALEN) != 0)
-		connman_info("%s {newlink} index %d address %s mtu %u",
-						ifname, index, str, mtu);
+	connman_info("%s {newlink} index %d address %s mtu %u",
+					ifname, index, str, mtu);
 
 	if (operstate != 0xff)
 		connman_info("%s {newlink} index %d operstate %u <%s>",
@@ -501,10 +517,9 @@ static void process_newlink(unsigned short type, int index, unsigned flags,
 						operstate2str(operstate));
 
 	interface = g_hash_table_lookup(interface_list, GINT_TO_POINTER(index));
-	if (interface == NULL) {
+	if (!interface) {
 		interface = g_new0(struct interface_data, 1);
 		interface->index = index;
-		interface->name = g_strdup(ifname);
 		interface->ident = g_strdup(ident);
 
 		g_hash_table_insert(interface_list,
@@ -512,30 +527,27 @@ static void process_newlink(unsigned short type, int index, unsigned flags,
 
 		if (type == ARPHRD_ETHER)
 			read_uevent(interface);
-
 #if defined TIZEN_EXT
 		if (type == ARPHRD_PPP || type == ARPHDR_RMNET)
 			read_uevent(interface);
-#endif
 
-		__connman_technology_add_interface(interface->service_type,
-			interface->index, interface->name, interface->ident);
-	}
-#if defined TIZEN_EXT
-	else if (g_strcmp0(interface->ident, ident) != 0) {
+	} else if (g_strcmp0(interface->ident, ident) != 0) {
 		/* If an original address is built-in physical device,
 		 * it's hardly get an address at a initial creation
 		 */
 		__connman_technology_remove_interface(interface->service_type,
-				interface->index, interface->name, interface->ident);
+				interface->index, interface->ident);
 
 		g_free(interface->ident);
 		interface->ident = g_strdup(ident);
 
 		__connman_technology_add_interface(interface->service_type,
-				interface->index, interface->name, interface->ident);
-	}
+				interface->index, interface->ident);
+
+		interface = NULL;
 #endif
+	} else
+		interface = NULL;
 
 	for (list = rtnl_list; list; list = list->next) {
 		struct connman_rtnl *rtnl = list->data;
@@ -543,6 +555,16 @@ static void process_newlink(unsigned short type, int index, unsigned flags,
 		if (rtnl->newlink)
 			rtnl->newlink(type, index, flags, change);
 	}
+
+	/*
+	 * The interface needs to be added after the newlink call.
+	 * The newlink will create the technology when needed and
+	 * __connman_technology_add_interface() expects the
+	 * technology to be there already.
+	 */
+	if (interface)
+		__connman_technology_add_interface(interface->service_type,
+			interface->index, interface->ident);
 
 	for (list = watch_list; list; list = list->next) {
 		struct watch_data *watch = list->data;
@@ -564,15 +586,8 @@ static void process_dellink(unsigned short type, int index, unsigned flags,
 	GSList *list;
 
 	memset(&stats, 0, sizeof(stats));
-	if (extract_link(msg, bytes, NULL, &ifname, NULL, &operstate,
-					&stats) == FALSE)
+	if (!extract_link(msg, bytes, NULL, &ifname, NULL, &operstate, &stats))
 		return;
-
-#if defined TIZEN_EXT
-	/* Do not accept Wi-Fi P2P interface */
-	if (g_strrstr(ifname, "p2p") != NULL)
-		return;
-#endif
 
 	if (operstate != 0xff)
 		connman_info("%s {dellink} index %d operstate %u <%s>",
@@ -589,13 +604,14 @@ static void process_dellink(unsigned short type, int index, unsigned flags,
 	switch (type) {
 	case ARPHRD_ETHER:
 	case ARPHRD_LOOPBACK:
+	case ARPHDR_PHONET_PIPE:
+	case ARPHRD_PPP:
 	case ARPHRD_NONE:
 #if defined TIZEN_EXT
 	/*
 	 * Description: SLP requires ARPHRD_PPP for PPP type device
 	 *              ARPHDR_RMNET for QC modem using QMI
 	 */
-	case ARPHRD_PPP:
 	case ARPHDR_RMNET:
 #endif
 		__connman_ipconfig_dellink(index, &stats);
@@ -617,19 +633,19 @@ static void extract_ipv4_addr(struct ifaddrmsg *msg, int bytes,
 					attr = RTA_NEXT(attr, bytes)) {
 		switch (attr->rta_type) {
 		case IFA_ADDRESS:
-			if (address != NULL)
+			if (address)
 				*address = *((struct in_addr *) RTA_DATA(attr));
 			break;
 		case IFA_LOCAL:
-			if (local != NULL)
+			if (local)
 				*local = *((struct in_addr *) RTA_DATA(attr));
 			break;
 		case IFA_BROADCAST:
-			if (broadcast != NULL)
+			if (broadcast)
 				*broadcast = *((struct in_addr *) RTA_DATA(attr));
 			break;
 		case IFA_LABEL:
-			if (label != NULL)
+			if (label)
 				*label = RTA_DATA(attr);
 			break;
 		}
@@ -646,11 +662,11 @@ static void extract_ipv6_addr(struct ifaddrmsg *msg, int bytes,
 					attr = RTA_NEXT(attr, bytes)) {
 		switch (attr->rta_type) {
 		case IFA_ADDRESS:
-			if (addr != NULL)
+			if (addr)
 				*addr = *((struct in6_addr *) RTA_DATA(attr));
 			break;
 		case IFA_LOCAL:
-			if (local != NULL)
+			if (local)
 				*local = *((struct in6_addr *) RTA_DATA(attr));
 			break;
 		}
@@ -680,20 +696,21 @@ static void process_newaddr(unsigned char family, unsigned char prefixlen,
 		return;
 	}
 
-	if (inet_ntop(family, src, ip_string, INET6_ADDRSTRLEN) == NULL)
+	if (!inet_ntop(family, src, ip_string, INET6_ADDRSTRLEN))
 		return;
 
-	__connman_ipconfig_newaddr(index, family, label,
-					prefixlen, ip_string);
-
-	if (family == AF_INET6) {
-		/*
-		 * Re-create RDNSS configured servers if there are any
-		 * for this interface. This is done because we might
-		 * have now properly configured interface with proper
-		 * autoconfigured address.
-		 */
-		__connman_resolver_redo_servers(index);
+	if (__connman_ipconfig_newaddr(index, family, label,
+					prefixlen, ip_string) >= 0) {
+		if (family == AF_INET6) {
+			/*
+			 * Re-create RDNSS configured servers if there
+			 * are any for this interface. This is done
+			 * because we might have now properly
+			 * configured interface with proper
+			 * autoconfigured address.
+			 */
+			__connman_resolver_redo_servers(index);
+		}
 	}
 }
 
@@ -719,7 +736,7 @@ static void process_deladdr(unsigned char family, unsigned char prefixlen,
 		return;
 	}
 
-	if (inet_ntop(family, src, ip_string, INET6_ADDRSTRLEN) == NULL)
+	if (!inet_ntop(family, src, ip_string, INET6_ADDRSTRLEN))
 		return;
 
 	__connman_ipconfig_deladdr(index, family, label,
@@ -736,15 +753,15 @@ static void extract_ipv4_route(struct rtmsg *msg, int bytes, int *index,
 					attr = RTA_NEXT(attr, bytes)) {
 		switch (attr->rta_type) {
 		case RTA_DST:
-			if (dst != NULL)
+			if (dst)
 				*dst = *((struct in_addr *) RTA_DATA(attr));
 			break;
 		case RTA_GATEWAY:
-			if (gateway != NULL)
+			if (gateway)
 				*gateway = *((struct in_addr *) RTA_DATA(attr));
 			break;
 		case RTA_OIF:
-			if (index != NULL)
+			if (index)
 				*index = *((int *) RTA_DATA(attr));
 			break;
 		}
@@ -761,16 +778,16 @@ static void extract_ipv6_route(struct rtmsg *msg, int bytes, int *index,
 					attr = RTA_NEXT(attr, bytes)) {
 		switch (attr->rta_type) {
 		case RTA_DST:
-			if (dst != NULL)
+			if (dst)
 				*dst = *((struct in6_addr *) RTA_DATA(attr));
 			break;
 		case RTA_GATEWAY:
-			if (gateway != NULL)
+			if (gateway)
 				*gateway =
 					*((struct in6_addr *) RTA_DATA(attr));
 			break;
 		case RTA_OIF:
-			if (index != NULL)
+			if (index)
 				*index = *((int *) RTA_DATA(attr));
 			break;
 		}
@@ -1022,6 +1039,9 @@ static void rtnl_newlink(struct nlmsghdr *hdr)
 
 	rtnl_link(hdr);
 
+	if (hdr->nlmsg_type == IFLA_WIRELESS)
+		connman_warn_once("Obsolete WEXT WiFi driver detected");
+
 	process_newlink(msg->ifi_type, msg->ifi_index, msg->ifi_flags,
 				msg->ifi_change, msg, IFA_PAYLOAD(hdr));
 }
@@ -1149,20 +1169,22 @@ static void rtnl_route(struct nlmsghdr *hdr)
 	}
 }
 
-static connman_bool_t is_route_rtmsg(struct rtmsg *msg)
+static bool is_route_rtmsg(struct rtmsg *msg)
 {
+	if (msg->rtm_flags & RTM_F_CLONED)
+		return false;
 
 	if (msg->rtm_table != RT_TABLE_MAIN)
-		return FALSE;
+		return false;
 
 	if (msg->rtm_protocol != RTPROT_BOOT &&
 			msg->rtm_protocol != RTPROT_KERNEL)
-		return FALSE;
+		return false;
 
 	if (msg->rtm_type != RTN_UNICAST)
-		return FALSE;
+		return false;
 
-	return TRUE;
+	return true;
 }
 
 static void rtnl_newroute(struct nlmsghdr *hdr)
@@ -1272,9 +1294,6 @@ static void rtnl_newnduseropt(struct nlmsghdr *hdr)
 	int i, nr_servers = 0;
 	int msglen = msg->nduseropt_opts_len;
 	int index;
-#if defined TIZEN_EXT
-	char *interface;
-#endif
 
 	DBG("family %d index %d len %d type %d code %d",
 		msg->nduseropt_family, msg->nduseropt_ifindex,
@@ -1290,17 +1309,6 @@ static void rtnl_newnduseropt(struct nlmsghdr *hdr)
 	if (index < 0)
 		return;
 
-#if defined TIZEN_EXT
-	/* Do not accept Wi-Fi P2P interface */
-	interface = connman_inet_ifname(index);
-
-	if (g_strrstr(interface, "p2p") != NULL) {
-		g_free(interface);
-		return;
-	}
-
-	g_free(interface);
-#endif
 	for (opt = (void *)&msg[1];
 			msglen > 0;
 			msglen -= opt->nd_opt_len * 8,
@@ -1327,7 +1335,7 @@ static void rtnl_newnduseropt(struct nlmsghdr *hdr)
 			g_free(domains);
 
 			domains = rtnl_nd_opt_dnssl(opt, &lifetime);
-			for (i = 0; domains != NULL && domains[i] != NULL; i++)
+			for (i = 0; domains && domains[i]; i++)
 				connman_resolver_append_lifetime(index,
 						domains[i], NULL, lifetime);
 		}
@@ -1373,6 +1381,7 @@ static const char *type2string(uint16_t type)
 }
 
 static GIOChannel *channel = NULL;
+static guint channel_watch = 0;
 
 struct rtnl_request {
 	struct nlmsghdr hdr;
@@ -1433,13 +1442,13 @@ static int process_response(guint32 seq)
 	DBG("seq %d", seq);
 
 	req = find_request(seq);
-	if (req != NULL) {
+	if (req) {
 		request_list = g_slist_remove(request_list, req);
 		g_free(req);
 	}
 
 	req = g_slist_nth_data(request_list, 0);
-	if (req == NULL)
+	if (!req)
 		return 0;
 
 	return send_request(req);
@@ -1502,8 +1511,7 @@ static void rtnl_message(void *buf, size_t len)
 	}
 }
 
-static gboolean netlink_event(GIOChannel *chan,
-				GIOCondition cond, gpointer data)
+static gboolean netlink_event(GIOChannel *chan, GIOCondition cond, gpointer data)
 {
 	unsigned char buf[4096];
 	struct sockaddr_nl nladdr;
@@ -1548,7 +1556,7 @@ static int send_getlink(void)
 	DBG("");
 
 	req = g_try_malloc0(RTNL_REQUEST_SIZE);
-	if (req == NULL)
+	if (!req)
 		return -ENOMEM;
 
 	req->hdr.nlmsg_len = RTNL_REQUEST_SIZE;
@@ -1568,7 +1576,7 @@ static int send_getaddr(void)
 	DBG("");
 
 	req = g_try_malloc0(RTNL_REQUEST_SIZE);
-	if (req == NULL)
+	if (!req)
 		return -ENOMEM;
 
 	req->hdr.nlmsg_len = RTNL_REQUEST_SIZE;
@@ -1588,7 +1596,7 @@ static int send_getroute(void)
 	DBG("");
 
 	req = g_try_malloc0(RTNL_REQUEST_SIZE);
-	if (req == NULL)
+	if (!req)
 		return -ENOMEM;
 
 	req->hdr.nlmsg_len = RTNL_REQUEST_SIZE;
@@ -1659,7 +1667,7 @@ unsigned int __connman_rtnl_update_interval_remove(unsigned int interval)
 
 	update_list = g_slist_remove(update_list, GINT_TO_POINTER(interval));
 
-	if (update_list != NULL)
+	if (update_list)
 		min = GPOINTER_TO_UINT(g_slist_nth_data(update_list, 0));
 
 	if (min > update_interval)
@@ -1704,8 +1712,9 @@ int __connman_rtnl_init(void)
 	g_io_channel_set_encoding(channel, NULL, NULL);
 	g_io_channel_set_buffered(channel, FALSE);
 
-	g_io_add_watch(channel, G_IO_IN | G_IO_NVAL | G_IO_HUP | G_IO_ERR,
-							netlink_event, NULL);
+	channel_watch = g_io_add_watch(channel,
+				G_IO_IN | G_IO_NVAL | G_IO_HUP | G_IO_ERR,
+				netlink_event, NULL);
 
 	return 0;
 }
@@ -1754,6 +1763,11 @@ void __connman_rtnl_cleanup(void)
 
 	g_slist_free(request_list);
 	request_list = NULL;
+
+	if (channel_watch) {
+		g_source_remove(channel_watch);
+		channel_watch = 0;
+	}
 
 	g_io_channel_shutdown(channel, TRUE, NULL);
 	g_io_channel_unref(channel);

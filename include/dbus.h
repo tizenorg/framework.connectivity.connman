@@ -46,6 +46,7 @@ extern "C" {
 #define CONNMAN_TECHNOLOGY_INTERFACE	CONNMAN_SERVICE ".Technology"
 #define CONNMAN_SESSION_INTERFACE	CONNMAN_SERVICE ".Session"
 #define CONNMAN_NOTIFICATION_INTERFACE	CONNMAN_SERVICE ".Notification"
+#define CONNMAN_PEER_INTERFACE		CONNMAN_SERVICE ".Peer"
 
 #define CONNMAN_PRIVILEGE_MODIFY	1
 #define CONNMAN_PRIVILEGE_SECRET	2
@@ -68,11 +69,6 @@ void connman_dbus_property_append_fixed_array(DBusMessageIter *iter,
 dbus_bool_t connman_dbus_property_changed_basic(const char *path,
 				const char *interface, const char *key,
 							int type, void *val);
-#if defined TIZEN_EXT
-dbus_bool_t connman_dbus_service_property_changed_with_error_cause(const char *path,
-				const char *interface, const char *key1, int type1, void *val1,
-				const char *key2, int type2, void *val2);
-#endif
 dbus_bool_t connman_dbus_property_changed_dict(const char *path,
 				const char *interface, const char *key,
 			connman_dbus_append_cb_t function, void *user_data);
@@ -91,17 +87,6 @@ dbus_bool_t connman_dbus_setting_changed_array(const char *owner,
 				const char *path, const char *key, int type,
 				connman_dbus_append_cb_t function,
 				void *user_data);
-#if defined TIZEN_EXT
-/*
- * August 22nd, 2011. TIZEN
- *
- * This part is added to send a DBus signal which means scan is completed
- * because scan UX of a Wi-Fi setting application has an active scan procedure
- * and it needs scan complete signal whether success or not
- */
-dbus_bool_t connman_dbus_scan_completed_basic(const char *path,
-				const char *interface,int type, void *val);
-#endif
 
 static inline void connman_dbus_dict_open(DBusMessageIter *iter,
 							DBusMessageIter *dict)
@@ -110,6 +95,25 @@ static inline void connman_dbus_dict_open(DBusMessageIter *iter,
 			DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
 			DBUS_TYPE_STRING_AS_STRING DBUS_TYPE_VARIANT_AS_STRING
 			DBUS_DICT_ENTRY_END_CHAR_AS_STRING, dict);
+}
+
+static inline void connman_dbus_dict_open_variant(DBusMessageIter *iter,
+							DBusMessageIter *dict)
+{
+	dbus_message_iter_open_container(iter, DBUS_TYPE_VARIANT,
+			DBUS_TYPE_ARRAY_AS_STRING
+			DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
+			DBUS_TYPE_STRING_AS_STRING DBUS_TYPE_VARIANT_AS_STRING
+			DBUS_DICT_ENTRY_END_CHAR_AS_STRING, dict);
+}
+
+static inline void connman_dbus_array_open(DBusMessageIter *iter,
+							DBusMessageIter *dict)
+{
+	dbus_message_iter_open_container(iter, DBUS_TYPE_VARIANT,
+			DBUS_TYPE_ARRAY_AS_STRING
+			DBUS_TYPE_STRING_AS_STRING,
+			dict);
 }
 
 static inline void connman_dbus_dict_close(DBusMessageIter *iter,
@@ -167,6 +171,29 @@ static inline void connman_dbus_dict_append_fixed_array(DBusMessageIter *dict,
 
 dbus_bool_t connman_dbus_validate_ident(const char *ident);
 char *connman_dbus_encode_string(const char *value);
+
+typedef void (* connman_dbus_get_connection_unix_user_cb_t) (unsigned int uid,
+						void *user_data, int err);
+
+int connman_dbus_get_connection_unix_user(DBusConnection *connection,
+                               const char *bus_name,
+                               connman_dbus_get_connection_unix_user_cb_t func,
+                               void *user_data);
+
+int connman_dbus_get_connection_unix_user_sync(DBusConnection *connection,
+				const char *bus_name,
+				unsigned int *user_id);
+
+typedef void (* connman_dbus_get_context_cb_t) (const unsigned char *context,
+						void *user_data, int err);
+
+int connman_dbus_get_selinux_context(DBusConnection *connection,
+                               const char *service,
+                               connman_dbus_get_context_cb_t func,
+                               void *user_data);
+
+void connman_dbus_reply_pending(DBusMessage *pending,
+					int error, const char *path);
 
 #ifdef __cplusplus
 }

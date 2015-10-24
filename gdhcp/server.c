@@ -51,12 +51,12 @@
 struct _GDHCPServer {
 	int ref_count;
 	GDHCPType type;
-	gboolean started;
+	bool started;
 	int ifindex;
 	char *interface;
 	uint32_t start_ip;
 	uint32_t end_ip;
-	uint32_t server_nip;
+	uint32_t server_nip;	/* our address in network byte order */
 	uint32_t lease_seconds;
 	int listener_sockfd;
 	guint listener_watch;
@@ -65,6 +65,8 @@ struct _GDHCPServer {
 	GHashTable *nip_lease_hash;
 	GHashTable *option_hash; /* Options send to client */
 	GDHCPSaveLeaseFunc save_lease_func;
+	GDHCPLeaseAddedCb lease_added_cb;
+	GDHCPSaveACKLeaseFunc save_ack_lease_func;
 	GDHCPDebugFunc debug_func;
 	gpointer debug_data;
 };
@@ -80,7 +82,7 @@ static inline void debug(GDHCPServer *server, const char *format, ...)
 	char str[256];
 	va_list ap;
 
-	if (server->debug_func == NULL)
+	if (!server->debug_func)
 		return;
 
 	va_start(ap, format);
@@ -143,14 +145,14 @@ static int get_lease(GDHCPServer *dhcp_server, uint32_t yiaddr,
 					GINT_TO_POINTER((int) ntohl(yiaddr)));
 	debug(dhcp_server, "lease_mac %p lease_nip %p", lease_mac, lease_nip);
 
-	if (lease_nip != NULL) {
+	if (lease_nip) {
 		dhcp_server->lease_list =
 				g_list_remove(dhcp_server->lease_list,
 								lease_nip);
 		g_hash_table_remove(dhcp_server->nip_lease_hash,
 				GINT_TO_POINTER((int) ntohl(yiaddr)));
 
-		if (lease_mac == NULL)
+		if (!lease_mac)
 			*lease = lease_nip;
 		else if (lease_nip != lease_mac) {
 			remove_lease(dhcp_server, lease_mac);
@@ -161,7 +163,7 @@ static int get_lease(GDHCPServer *dhcp_server, uint32_t yiaddr,
 		return 0;
 	}
 
-	if (lease_mac != NULL) {
+	if (lease_mac) {
 		dhcp_server->lease_list =
 				g_list_remove(dhcp_server->lease_list,
 								lease_mac);
@@ -173,7 +175,7 @@ static int get_lease(GDHCPServer *dhcp_server, uint32_t yiaddr,
 	}
 
 	*lease = g_try_new0(struct dhcp_lease, 1);
-	if (*lease == NULL)
+	if (!*lease)
 		return -ENOMEM;
 
 	return 0;
@@ -213,6 +215,9 @@ static struct dhcp_lease *add_lease(GDHCPServer *dhcp_server, uint32_t expire,
 	g_hash_table_insert(dhcp_server->nip_lease_hash,
 				GINT_TO_POINTER((int) lease->lease_nip), lease);
 
+	if (dhcp_server->lease_added_cb)
+		dhcp_server->lease_added_cb(lease->lease_mac, yiaddr);
+
 	return lease;
 }
 
@@ -224,18 +229,18 @@ static struct dhcp_lease *find_lease_by_nip(GDHCPServer *dhcp_server,
 }
 
 /* Check if the IP is taken; if it is, add it to the lease table */
-static gboolean arp_check(uint32_t nip, const uint8_t *safe_mac)
+static bool arp_check(uint32_t nip, const uint8_t *safe_mac)
 {
 	/* TODO: Add ARP checking */
-	return TRUE;
+	return true;
 }
 
-static gboolean is_expired_lease(struct dhcp_lease *lease)
+static bool is_expired_lease(struct dhcp_lease *lease)
 {
 	if (lease->expire < time(NULL))
-		return TRUE;
+		return true;
 
-	return FALSE;
+	return false;
 }
 
 static uint32_t find_free_or_expired_nip(GDHCPServer *dhcp_server,
@@ -255,26 +260,26 @@ static uint32_t find_free_or_expired_nip(GDHCPServer *dhcp_server,
 			continue;
 
 		lease = find_lease_by_nip(dhcp_server, ip_addr);
-		if (lease != NULL)
+		if (lease)
 			continue;
 
-		if (arp_check(htonl(ip_addr), safe_mac) == TRUE)
+		if (arp_check(htonl(ip_addr), safe_mac))
 			return ip_addr;
 	}
 
 	/* The last lease is the oldest one */
 	list = g_list_last(dhcp_server->lease_list);
-	if (list == NULL)
+	if (!list)
 		return 0;
 
 	lease = list->data;
-	if (lease == NULL)
+	if (!lease)
 		return 0;
 
-	 if (is_expired_lease(lease) == FALSE)
+	 if (!is_expired_lease(lease))
 		return 0;
 
-	 if (arp_check(lease->lease_nip, safe_mac) == FALSE)
+	 if (!arp_check(lease->lease_nip, safe_mac))
 		return 0;
 
 	return lease->lease_nip;
@@ -357,18 +362,18 @@ GDHCPServer *g_dhcp_server_new(GDHCPType type,
 	}
 
 	dhcp_server = g_try_new0(GDHCPServer, 1);
-	if (dhcp_server == NULL) {
+	if (!dhcp_server) {
 		*error = G_DHCP_SERVER_ERROR_NOMEM;
 		return NULL;
 	}
 
 	dhcp_server->interface = get_interface_name(ifindex);
-	if (dhcp_server->interface == NULL) {
+	if (!dhcp_server->interface) {
 		*error = G_DHCP_SERVER_ERROR_INTERFACE_UNAVAILABLE;
 		goto error;
 	}
 
-	if (interface_is_up(ifindex) == FALSE) {
+	if (!interface_is_up(ifindex)) {
 		*error = G_DHCP_SERVER_ERROR_INTERFACE_DOWN;
 		goto error;
 	}
@@ -398,6 +403,7 @@ GDHCPServer *g_dhcp_server_new(GDHCPType type,
 	dhcp_server->listener_watch = -1;
 	dhcp_server->listener_channel = NULL;
 	dhcp_server->save_lease_func = NULL;
+	dhcp_server->save_ack_lease_func = NULL;
 	dhcp_server->debug_func = NULL;
 	dhcp_server->debug_data = NULL;
 
@@ -424,7 +430,7 @@ static uint8_t check_packet_type(struct dhcp_packet *packet)
 
 	type = dhcp_get_option(packet, DHCP_MESSAGE_TYPE);
 
-	if (type == NULL)
+	if (!type)
 		return 0;
 
 	if (*type < DHCP_MINTYPE)
@@ -450,7 +456,7 @@ static void init_packet(GDHCPServer *dhcp_server, struct dhcp_packet *packet,
 	packet->gateway_nip = client_packet->gateway_nip;
 	packet->ciaddr = client_packet->ciaddr;
 	dhcp_add_option_uint32(packet, DHCP_SERVER_ID,
-						dhcp_server->server_nip);
+					ntohl(dhcp_server->server_nip));
 }
 
 static void add_option(gpointer key, gpointer value, gpointer user_data)
@@ -460,7 +466,7 @@ static void add_option(gpointer key, gpointer value, gpointer user_data)
 	struct in_addr nip;
 	struct dhcp_packet *packet = user_data;
 
-	if (option_value == NULL)
+	if (!option_value)
 		return;
 
 	switch (option_code) {
@@ -485,28 +491,28 @@ static void add_server_options(GDHCPServer *dhcp_server,
 				add_option, packet);
 }
 
-static gboolean check_requested_nip(GDHCPServer *dhcp_server,
+static bool check_requested_nip(GDHCPServer *dhcp_server,
 					uint32_t requested_nip)
 {
 	struct dhcp_lease *lease;
 
 	if (requested_nip == 0)
-		return FALSE;
+		return false;
 
 	if (requested_nip < dhcp_server->start_ip)
-		return FALSE;
+		return false;
 
 	if (requested_nip > dhcp_server->end_ip)
-		return FALSE;
+		return false;
 
 	lease = find_lease_by_nip(dhcp_server, requested_nip);
-	if (lease == NULL)
-		return TRUE;
+	if (!lease)
+		return true;
 
-	if (is_expired_lease(lease) == FALSE)
-		return FALSE;
+	if (!is_expired_lease(lease))
+		return false;
 
-	return TRUE;
+	return true;
 }
 
 static void send_packet_to_client(GDHCPServer *dhcp_server,
@@ -529,7 +535,7 @@ static void send_packet_to_client(GDHCPServer *dhcp_server,
 	dhcp_send_raw_packet(dhcp_pkt,
 		dhcp_server->server_nip, SERVER_PORT,
 		ciaddr, CLIENT_PORT, chaddr,
-		dhcp_server->ifindex);
+		dhcp_server->ifindex, false);
 }
 
 static void send_offer(GDHCPServer *dhcp_server,
@@ -544,7 +550,7 @@ static void send_offer(GDHCPServer *dhcp_server,
 
 	if (lease)
 		packet.yiaddr = htonl(lease->lease_nip);
-	else if (check_requested_nip(dhcp_server, requested_nip) == TRUE)
+	else if (check_requested_nip(dhcp_server, requested_nip))
 		packet.yiaddr = htonl(requested_nip);
 	else
 		packet.yiaddr = htonl(find_free_or_expired_nip(
@@ -559,7 +565,7 @@ static void send_offer(GDHCPServer *dhcp_server,
 
 	lease = add_lease(dhcp_server, OFFER_TIME,
 				packet.chaddr, packet.yiaddr);
-	if (lease == NULL) {
+	if (!lease) {
 		debug(dhcp_server,
 				"Err: No free IP addresses. OFFER abandoned");
 		return;
@@ -579,7 +585,7 @@ static void save_lease(GDHCPServer *dhcp_server)
 {
 	GList *list;
 
-	if (dhcp_server->save_lease_func == NULL)
+	if (!dhcp_server->save_lease_func)
 		return;
 
 	for (list = dhcp_server->lease_list; list; list = list->next) {
@@ -626,7 +632,7 @@ static void send_NAK(GDHCPServer *dhcp_server,
 	dhcp_send_raw_packet(&packet,
 			dhcp_server->server_nip, SERVER_PORT,
 			INADDR_BROADCAST, CLIENT_PORT, MAC_BCAST_ADDR,
-			dhcp_server->ifindex);
+			dhcp_server->ifindex, false);
 }
 
 static void send_inform(GDHCPServer *dhcp_server,
@@ -646,8 +652,11 @@ static gboolean listener_event(GIOChannel *channel, GIOCondition condition,
 	struct dhcp_packet packet;
 	struct dhcp_lease *lease;
 	uint32_t requested_nip = 0;
-	uint8_t type, *server_id_option, *request_ip_option;
+	uint8_t type, *server_id_option, *request_ip_option, *host_name;
 	int re;
+
+	GDHCPOptionType option_type;
+	char *option_value;
 
 	if (condition & (G_IO_NVAL | G_IO_ERR | G_IO_HUP)) {
 		dhcp_server->listener_watch = 0;
@@ -664,7 +673,8 @@ static gboolean listener_event(GIOChannel *channel, GIOCondition condition,
 
 	server_id_option = dhcp_get_option(&packet, DHCP_SERVER_ID);
 	if (server_id_option) {
-		uint32_t server_nid = get_be32(server_id_option);
+		uint32_t server_nid =
+			get_unaligned((const uint32_t *) server_id_option);
 
 		if (server_nid != dhcp_server->server_nip)
 			return TRUE;
@@ -677,65 +687,78 @@ static gboolean listener_event(GIOChannel *channel, GIOCondition condition,
 	lease = find_lease_by_mac(dhcp_server, packet.chaddr);
 
 	switch (type) {
-		case DHCPDISCOVER:
-			debug(dhcp_server, "Received DISCOVER");
+	case DHCPDISCOVER:
+		debug(dhcp_server, "Received DISCOVER");
 
-			send_offer(dhcp_server, &packet, lease, requested_nip);
+		send_offer(dhcp_server, &packet, lease, requested_nip);
 		break;
-		case DHCPREQUEST:
-			debug(dhcp_server, "Received REQUEST NIP %d",
+	case DHCPREQUEST:
+		debug(dhcp_server, "Received REQUEST NIP %d",
 							requested_nip);
-			if (requested_nip == 0) {
-				requested_nip = packet.ciaddr;
-				if (requested_nip == 0)
-					break;
-			}
-
-			if (lease && requested_nip == lease->lease_nip) {
-				debug(dhcp_server, "Sending ACK");
-				send_ACK(dhcp_server, &packet,
-						lease->lease_nip);
+		if (requested_nip == 0) {
+			requested_nip = packet.ciaddr;
+			if (requested_nip == 0)
 				break;
-			}
+		}
 
-			if (server_id_option || lease == NULL) {
-				debug(dhcp_server, "Sending NAK");
-				send_NAK(dhcp_server, &packet);
-			}
+		if (lease && requested_nip == lease->lease_nip) {
+			debug(dhcp_server, "Sending ACK");
+
+			host_name = dhcp_get_option(&packet, DHCP_HOST_NAME);
+			option_type = dhcp_get_code_type(DHCP_HOST_NAME);
+			option_value = malloc_option_value_string(host_name,
+								option_type);
+			send_ACK(dhcp_server, &packet,
+				lease->lease_nip);
+
+			if (dhcp_server->save_ack_lease_func)
+				dhcp_server->save_ack_lease_func(
+							option_value,
+							lease->lease_mac,
+							lease->lease_nip);
+			g_free(option_value);
+
+			break;
+		}
+
+		if (server_id_option || !lease) {
+			debug(dhcp_server, "Sending NAK");
+			send_NAK(dhcp_server, &packet);
+		}
 
 		break;
-		case DHCPDECLINE:
-			debug(dhcp_server, "Received DECLINE");
+	case DHCPDECLINE:
+		debug(dhcp_server, "Received DECLINE");
 
-			if (server_id_option == NULL)
-				break;
+		if (!server_id_option)
+			break;
 
-			if (request_ip_option == NULL)
-				break;
+		if (!request_ip_option)
+			break;
 
-			if (lease == NULL)
-				break;
+		if (!lease)
+			break;
 
-			if (requested_nip == lease->lease_nip)
-				remove_lease(dhcp_server, lease);
+		if (requested_nip == lease->lease_nip)
+			remove_lease(dhcp_server, lease);
 
 		break;
-		case DHCPRELEASE:
-			debug(dhcp_server, "Received RELEASE");
+	case DHCPRELEASE:
+		debug(dhcp_server, "Received RELEASE");
 
-			if (server_id_option == NULL)
-				break;
+		if (!server_id_option)
+			break;
 
-			if (lease == NULL)
-				break;
+		if (!lease)
+			break;
 
-			if (packet.ciaddr == lease->lease_nip)
-				lease_set_expire(dhcp_server, lease,
-								time(NULL));
+		if (packet.ciaddr == lease->lease_nip)
+			lease_set_expire(dhcp_server, lease,
+					time(NULL));
 		break;
-		case DHCPINFORM:
-			debug(dhcp_server, "Received INFORM");
-			send_inform(dhcp_server, &packet);
+	case DHCPINFORM:
+		debug(dhcp_server, "Received INFORM");
+		send_inform(dhcp_server, &packet);
 		break;
 	}
 
@@ -748,7 +771,7 @@ int g_dhcp_server_start(GDHCPServer *dhcp_server)
 	GIOChannel *listener_channel;
 	int listener_sockfd;
 
-	if (dhcp_server->started == TRUE)
+	if (dhcp_server->started)
 		return 0;
 
 	listener_sockfd = dhcp_l3_socket(SERVER_PORT,
@@ -757,7 +780,7 @@ int g_dhcp_server_start(GDHCPServer *dhcp_server)
 		return -EIO;
 
 	listener_channel = g_io_channel_unix_new(listener_sockfd);
-	if (listener_channel == NULL) {
+	if (!listener_channel) {
 		close(listener_sockfd);
 		return -EIO;
 	}
@@ -783,7 +806,7 @@ int g_dhcp_server_set_option(GDHCPServer *dhcp_server,
 {
 	struct in_addr nip;
 
-	if (option_value == NULL)
+	if (!option_value)
 		return -EINVAL;
 
 	debug(dhcp_server, "option_code %d option_value %s",
@@ -808,15 +831,33 @@ int g_dhcp_server_set_option(GDHCPServer *dhcp_server,
 void g_dhcp_server_set_save_lease(GDHCPServer *dhcp_server,
 				GDHCPSaveLeaseFunc func, gpointer user_data)
 {
-	if (dhcp_server == NULL)
+	if (!dhcp_server)
 		return;
 
 	dhcp_server->save_lease_func = func;
 }
 
-GDHCPServer *g_dhcp_server_ref(GDHCPServer *dhcp_server)
+void g_dhcp_server_set_lease_added_cb(GDHCPServer *dhcp_server,
+							GDHCPLeaseAddedCb cb)
+{
+	if (!dhcp_server)
+		return;
+
+	dhcp_server->lease_added_cb = cb;
+}
+
+void g_dhcp_server_set_save_ack_lease(GDHCPServer *dhcp_server,
+				GDHCPSaveACKLeaseFunc func, gpointer user_data)
 {
 	if (dhcp_server == NULL)
+		return;
+
+	dhcp_server->save_ack_lease_func = func;
+}
+
+GDHCPServer *g_dhcp_server_ref(GDHCPServer *dhcp_server)
+{
+	if (!dhcp_server)
 		return NULL;
 
 	__sync_fetch_and_add(&dhcp_server->ref_count, 1);
@@ -841,7 +882,7 @@ void g_dhcp_server_stop(GDHCPServer *dhcp_server)
 
 void g_dhcp_server_unref(GDHCPServer *dhcp_server)
 {
-	if (dhcp_server == NULL)
+	if (!dhcp_server)
 		return;
 
 	if (__sync_fetch_and_sub(&dhcp_server->ref_count, 1) != 1)
@@ -876,9 +917,10 @@ int g_dhcp_server_set_ip_range(GDHCPServer *dhcp_server,
 	return 0;
 }
 
-void g_dhcp_server_set_lease_time(GDHCPServer *dhcp_server, unsigned int lease_time)
+void g_dhcp_server_set_lease_time(GDHCPServer *dhcp_server,
+					unsigned int lease_time)
 {
-	if (dhcp_server == NULL)
+	if (!dhcp_server)
 		return;
 
 	dhcp_server->lease_seconds = lease_time;
@@ -887,7 +929,7 @@ void g_dhcp_server_set_lease_time(GDHCPServer *dhcp_server, unsigned int lease_t
 void g_dhcp_server_set_debug(GDHCPServer *dhcp_server,
 				GDHCPDebugFunc func, gpointer user_data)
 {
-	if (dhcp_server == NULL)
+	if (!dhcp_server)
 		return;
 
 	dhcp_server->debug_func = func;

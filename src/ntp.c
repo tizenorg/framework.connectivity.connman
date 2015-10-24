@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2014  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -69,26 +69,104 @@ struct ntp_msg {
 
 #define LOGTOD(a)  ((a) < 0 ? 1. / (1L << -(a)) : 1L << (int)(a))
 
+#define NTP_SEND_TIMEOUT       2
+#define NTP_SEND_RETRIES       3
+
+#define NTP_FLAG_LI_SHIFT      6
+#define NTP_FLAG_LI_MASK       0x3
+#define NTP_FLAG_LI_NOWARNING  0x0
+#define NTP_FLAG_LI_ADDSECOND  0x1
+#define NTP_FLAG_LI_DELSECOND  0x2
+#define NTP_FLAG_LI_NOTINSYNC  0x3
+
+#define NTP_FLAG_VN_SHIFT      3
+#define NTP_FLAG_VN_MASK       0x7
+
+#define NTP_FLAG_MD_SHIFT      0
+#define NTP_FLAG_MD_MASK       0x7
+#define NTP_FLAG_MD_UNSPEC     0
+#define NTP_FLAG_MD_ACTIVE     1
+#define NTP_FLAG_MD_PASSIVE    2
+#define NTP_FLAG_MD_CLIENT     3
+#define NTP_FLAG_MD_SERVER     4
+#define NTP_FLAG_MD_BROADCAST  5
+#define NTP_FLAG_MD_CONTROL    6
+#define NTP_FLAG_MD_PRIVATE    7
+
+#define NTP_FLAG_VN_VER3       3
+#define NTP_FLAG_VN_VER4       4
+
+#define NTP_FLAGS_ENCODE(li, vn, md)  ((uint8_t)( \
+                      (((li) & NTP_FLAG_LI_MASK) << NTP_FLAG_LI_SHIFT) | \
+                      (((vn) & NTP_FLAG_VN_MASK) << NTP_FLAG_VN_SHIFT) | \
+                      (((md) & NTP_FLAG_MD_MASK) << NTP_FLAG_MD_SHIFT)))
+
+#define NTP_FLAGS_LI_DECODE(flags)    ((uint8_t)(((flags) >> NTP_FLAG_LI_SHIFT) & NTP_FLAG_LI_MASK))
+#define NTP_FLAGS_VN_DECODE(flags)    ((uint8_t)(((flags) >> NTP_FLAG_VN_SHIFT) & NTP_FLAG_VN_MASK))
+#define NTP_FLAGS_MD_DECODE(flags)    ((uint8_t)(((flags) >> NTP_FLAG_MD_SHIFT) & NTP_FLAG_MD_MASK))
+
+#define NTP_PRECISION_S    0
+#define NTP_PRECISION_DS   -3
+#define NTP_PRECISION_CS   -6
+#define NTP_PRECISION_MS   -9
+#define NTP_PRECISION_US   -19
+#define NTP_PRECISION_NS   -29
+
 static guint channel_watch = 0;
-static struct timeval transmit_timeval;
+static struct timespec mtx_time;
 static int transmit_fd = 0;
 
 static char *timeserver = NULL;
+static struct sockaddr_in timeserver_addr;
 static gint poll_id = 0;
 static gint timeout_id = 0;
+static guint retries = 0;
 
-static void send_packet(int fd, const char *server)
+static void send_packet(int fd, const char *server, uint32_t timeout);
+
+static void next_server(void)
+{
+	if (timeserver) {
+		g_free(timeserver);
+		timeserver = NULL;
+	}
+
+	__connman_timeserver_sync_next();
+}
+
+static gboolean send_timeout(gpointer user_data)
+{
+	uint32_t timeout = GPOINTER_TO_UINT(user_data);
+
+	DBG("send timeout %u (retries %d)", timeout, retries);
+
+	if (retries++ == NTP_SEND_RETRIES)
+		next_server();
+	else
+		send_packet(transmit_fd, timeserver, timeout << 1);
+
+	return FALSE;
+}
+
+static void send_packet(int fd, const char *server, uint32_t timeout)
 {
 	struct ntp_msg msg;
 	struct sockaddr_in addr;
+	struct timeval transmit_timeval;
 	ssize_t len;
 
+	/*
+	 * At some point, we could specify the actual system precision with:
+	 *
+	 *   clock_getres(CLOCK_REALTIME, &ts);
+	 *   msg.precision = (int)log2(ts.tv_sec + (ts.tv_nsec * 1.0e-9));
+	 */
 	memset(&msg, 0, sizeof(msg));
-	msg.flags = 0x23;
+	msg.flags = NTP_FLAGS_ENCODE(NTP_FLAG_LI_NOTINSYNC, NTP_FLAG_VN_VER4,
+	    NTP_FLAG_MD_CLIENT);
 	msg.poll = 4;	// min
 	msg.poll = 10;	// max
-	msg.xmttime.seconds = random();
-	msg.xmttime.fraction = random();
+	msg.precision = NTP_PRECISION_S;
 
 	memset(&addr, 0, sizeof(addr));
 	addr.sin_family = AF_INET;
@@ -96,11 +174,20 @@ static void send_packet(int fd, const char *server)
 	addr.sin_addr.s_addr = inet_addr(server);
 
 	gettimeofday(&transmit_timeval, NULL);
+	clock_gettime(CLOCK_MONOTONIC, &mtx_time);
+
+	msg.xmttime.seconds = htonl(transmit_timeval.tv_sec + OFFSET_1900_1970);
+	msg.xmttime.fraction = htonl(transmit_timeval.tv_usec * 1000);
 
 	len = sendto(fd, &msg, sizeof(msg), MSG_DONTWAIT,
 						&addr, sizeof(addr));
 	if (len < 0) {
-		connman_error("Time request for server %s failed", server);
+		connman_error("Time request for server %s failed (%d/%s)",
+			server, errno, strerror(errno));
+
+		if (errno == ENETUNREACH)
+			__connman_timeserver_sync_next();
+
 		return;
 	}
 
@@ -108,34 +195,44 @@ static void send_packet(int fd, const char *server)
 		connman_error("Broken time request for server %s", server);
 		return;
 	}
-}
 
-static gboolean next_server(gpointer user_data)
-{
-	if (timeserver != NULL) {
-		g_free(timeserver);
-		timeserver = NULL;
-	}
+	/*
+	 * Add an exponential retry timeout to retry the existing
+	 * request. After a set number of retries, we'll fallback to
+	 * trying another server.
+	 */
 
-	__connman_timeserver_sync_next();
-
-	return FALSE;
+	timeout_id = g_timeout_add_seconds(timeout, send_timeout,
+					GUINT_TO_POINTER(timeout));
 }
 
 static gboolean next_poll(gpointer user_data)
 {
-	if (timeserver == NULL || transmit_fd == 0)
+	poll_id = 0;
+
+	if (!timeserver || transmit_fd == 0)
 		return FALSE;
 
-	send_packet(transmit_fd, timeserver);
+	send_packet(transmit_fd, timeserver, NTP_SEND_TIMEOUT);
 
 	return FALSE;
 }
 
-static void decode_msg(void *base, size_t len, struct timeval *tv)
+static void reset_timeout(void)
+{
+	if (timeout_id > 0) {
+		g_source_remove(timeout_id);
+		timeout_id = 0;
+	}
+
+	retries = 0;
+}
+
+static void decode_msg(void *base, size_t len, struct timeval *tv,
+		struct timespec *mrx_time)
 {
 	struct ntp_msg *msg = base;
-	double org, rec, xmt, dst;
+	double m_delta, org, rec, xmt, dst;
 	double delay, offset;
 	static guint transmit_delay;
 
@@ -144,7 +241,7 @@ static void decode_msg(void *base, size_t len, struct timeval *tv)
 		return;
 	}
 
-	if (tv == NULL) {
+	if (!tv) {
 		connman_error("Invalid packet timestamp from time server");
 		return;
 	}
@@ -161,13 +258,44 @@ static void decode_msg(void *base, size_t len, struct timeval *tv)
 			msg->rootdisp.seconds, msg->rootdisp.fraction);
 	DBG("reference  : 0x%04x", msg->refid);
 
+	if (!msg->stratum) {
+		/* RFC 4330 ch 8 Kiss-of-Death packet */
+		uint32_t code = ntohl(msg->refid);
+
+		connman_info("Skipping server %s KoD code %c%c%c%c",
+			timeserver, code >> 24, code >> 16 & 0xff,
+			code >> 8 & 0xff, code & 0xff);
+		next_server();
+		return;
+	}
+
 	transmit_delay = LOGTOD(msg->poll);
 
-	if (msg->flags != 0x24)
+	if (NTP_FLAGS_LI_DECODE(msg->flags) == NTP_FLAG_LI_NOTINSYNC) {
+		DBG("ignoring unsynchronized peer");
 		return;
+	}
 
-	org = transmit_timeval.tv_sec +
-			(1.0e-6 * transmit_timeval.tv_usec) + OFFSET_1900_1970;
+
+	if (NTP_FLAGS_VN_DECODE(msg->flags) != NTP_FLAG_VN_VER4) {
+		if (NTP_FLAGS_VN_DECODE(msg->flags) == NTP_FLAG_VN_VER3) {
+			DBG("requested version %d, accepting version %d",
+				NTP_FLAG_VN_VER4, NTP_FLAGS_VN_DECODE(msg->flags));
+		} else {
+			DBG("unsupported version %d", NTP_FLAGS_VN_DECODE(msg->flags));
+			return;
+		}
+	}
+
+	if (NTP_FLAGS_MD_DECODE(msg->flags) != NTP_FLAG_MD_SERVER) {
+		DBG("unsupported mode %d", NTP_FLAGS_MD_DECODE(msg->flags));
+		return;
+	}
+
+	m_delta = mrx_time->tv_sec - mtx_time.tv_sec +
+		1.0e-9 * (mrx_time->tv_nsec - mtx_time.tv_nsec);
+
+	org = tv->tv_sec + (1.0e-6 * tv->tv_usec) - m_delta + OFFSET_1900_1970;
 	rec = ntohl(msg->rectime.seconds) +
 			((double) ntohl(msg->rectime.fraction) / UINT_MAX);
 	xmt = ntohl(msg->xmttime.seconds) +
@@ -182,8 +310,8 @@ static void decode_msg(void *base, size_t len, struct timeval *tv)
 	DBG("offset=%f delay=%f", offset, delay);
 
 	/* Remove the timeout, as timeserver has responded */
-	if (timeout_id > 0)
-		g_source_remove(timeout_id);
+
+	reset_timeout();
 
 	/*
 	 * Now poll the server every transmit_delay seconds
@@ -236,10 +364,12 @@ static gboolean received_data(GIOChannel *channel, GIOCondition condition,
 							gpointer user_data)
 {
 	unsigned char buf[128];
+	struct sockaddr_in sender_addr;
 	struct msghdr msg;
 	struct iovec iov;
 	struct cmsghdr *cmsg;
 	struct timeval *tv;
+	struct timespec mrx_time;
 	char aux[128];
 	ssize_t len;
 	int fd;
@@ -260,12 +390,19 @@ static gboolean received_data(GIOChannel *channel, GIOCondition condition,
 	msg.msg_iovlen = 1;
 	msg.msg_control = aux;
 	msg.msg_controllen = sizeof(aux);
+	msg.msg_name = &sender_addr;
+	msg.msg_namelen = sizeof(sender_addr);
 
 	len = recvmsg(fd, &msg, MSG_DONTWAIT);
 	if (len < 0)
 		return TRUE;
 
+	if (timeserver_addr.sin_addr.s_addr != sender_addr.sin_addr.s_addr)
+		/* only accept messages from the timeserver */
+		return TRUE;
+
 	tv = NULL;
+	clock_gettime(CLOCK_MONOTONIC, &mrx_time);
 
 	for (cmsg = CMSG_FIRSTHDR(&msg); cmsg; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
 		if (cmsg->cmsg_level != SOL_SOCKET)
@@ -278,7 +415,7 @@ static gboolean received_data(GIOChannel *channel, GIOCondition condition,
 		}
 	}
 
-	decode_msg(iov.iov_base, iov.iov_len, tv);
+	decode_msg(iov.iov_base, iov.iov_len, tv, &mrx_time);
 
 	return TRUE;
 }
@@ -289,7 +426,7 @@ static void start_ntp(char *server)
 	struct sockaddr_in addr;
 	int tos = IPTOS_LOWDELAY, timestamp = 1;
 
-	if (server == NULL)
+	if (!server)
 		return;
 
 	DBG("server %s", server);
@@ -326,7 +463,7 @@ static void start_ntp(char *server)
 	}
 
 	channel = g_io_channel_unix_new(transmit_fd);
-	if (channel == NULL) {
+	if (!channel) {
 		close(transmit_fd);
 		return;
 	}
@@ -343,29 +480,23 @@ static void start_ntp(char *server)
 	g_io_channel_unref(channel);
 
 send:
-	send_packet(transmit_fd, server);
+	send_packet(transmit_fd, server, NTP_SEND_TIMEOUT);
 }
 
 int __connman_ntp_start(char *server)
 {
 	DBG("%s", server);
 
-	if (server == NULL)
+	if (!server)
 		return -EINVAL;
 
-	if (timeserver != NULL)
+	if (timeserver)
 		g_free(timeserver);
 
 	timeserver = g_strdup(server);
+	timeserver_addr.sin_addr.s_addr = inet_addr(server);
 
 	start_ntp(timeserver);
-
-	/*
-	 * Add a fallback timeout , preferably short, 5 sec here,
-	 * to fallback on the next server.
-	 */
-
-	timeout_id = g_timeout_add_seconds(5, next_server, NULL);
 
 	return 0;
 }
@@ -374,11 +505,12 @@ void __connman_ntp_stop()
 {
 	DBG("");
 
-	if (poll_id > 0)
+	if (poll_id > 0) {
 		g_source_remove(poll_id);
+		poll_id = 0;
+	}
 
-	if (timeout_id > 0)
-		g_source_remove(timeout_id);
+	reset_timeout();
 
 	if (channel_watch > 0) {
 		g_source_remove(channel_watch);
@@ -386,7 +518,7 @@ void __connman_ntp_stop()
 		transmit_fd = 0;
 	}
 
-	if (timeserver != NULL) {
+	if (timeserver) {
 		g_free(timeserver);
 		timeserver = NULL;
 	}

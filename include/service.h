@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2014  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -22,7 +22,11 @@
 #ifndef __CONNMAN_SERVICE_H
 #define __CONNMAN_SERVICE_H
 
-#include <connman/types.h>
+#include <stdbool.h>
+
+#if defined TIZEN_EXT
+#include <glib.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -44,7 +48,10 @@ enum connman_service_type {
 	CONNMAN_SERVICE_TYPE_GPS       = 6,
 	CONNMAN_SERVICE_TYPE_VPN       = 7,
 	CONNMAN_SERVICE_TYPE_GADGET    = 8,
+	CONNMAN_SERVICE_TYPE_P2P       = 9,
 };
+#define	MAX_CONNMAN_SERVICE_TYPES        10
+
 
 enum connman_service_security {
 	CONNMAN_SERVICE_SECURITY_UNKNOWN = 0,
@@ -85,6 +92,13 @@ enum connman_service_proxy_method {
 	CONNMAN_SERVICE_PROXY_METHOD_AUTO        = 3,
 };
 
+enum connman_service_connect_reason {
+	CONNMAN_SERVICE_CONNECT_REASON_NONE	= 0,
+	CONNMAN_SERVICE_CONNECT_REASON_AUTO	= 1,
+	CONNMAN_SERVICE_CONNECT_REASON_USER	= 2,
+	CONNMAN_SERVICE_CONNECT_REASON_SESSION	= 3,
+};
+
 struct connman_service;
 struct connman_network;
 
@@ -115,9 +129,15 @@ char **connman_service_get_proxy_servers(struct connman_service *service);
 char **connman_service_get_proxy_excludes(struct connman_service *service);
 const char *connman_service_get_proxy_url(struct connman_service *service);
 const char *connman_service_get_proxy_autoconfig(struct connman_service *service);
-connman_bool_t connman_service_get_favorite(struct connman_service *service);
+bool connman_service_get_favorite(struct connman_service *service);
+bool connman_service_get_autoconnect(struct connman_service *service);
 
 struct connman_service *connman_service_lookup_from_network(struct connman_network *network);
+
+void connman_service_create_ip4config(struct connman_service *service,
+								int index);
+void connman_service_create_ip6config(struct connman_service *service,
+								int index);
 
 #if defined TIZEN_EXT
 /*
@@ -135,14 +155,14 @@ void connman_service_user_pdn_connection_ref(struct connman_service *service);
  * Decrease reference count of user initiated packet data network connection
  * and return TRUE if counter is zero.
  */
-connman_bool_t connman_service_user_pdn_connection_unref_and_test(
+gboolean connman_service_user_pdn_connection_unref_and_test(
 					struct connman_service *service);
 
 /*
  * Test reference count of user initiated packet data network connection
  * and return TRUE if counter is zero. No impact to reference count
  */
-connman_bool_t connman_service_is_no_ref_user_pdn_connection(
+gboolean connman_service_is_no_ref_user_pdn_connection(
 					struct connman_service *service);
 #endif
 

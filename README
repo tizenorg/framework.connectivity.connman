@@ -31,6 +31,11 @@ Also plugins with additional features are available:
 	- PACrunner proxy handling
 	- PolicyKit authorization support
 
+Note that when ConnMan starts, it clears all network interfaces that are
+going to be used. If this is not desired, network interfaces can be ignored
+either by setting NetworkInterfaceBlacklist in the main.conf config file or
+by using the -I command line option.
+
 
 Compilation and installation
 ============================
@@ -39,9 +44,10 @@ In order to compile Connection Manager you need following software packages:
 	- GCC compiler
 	- GLib library
 	- D-Bus library
-	- IP-Tables library
+	- IP-Tables library (for tethering support)
 	- GnuTLS library (optional)
 	- PolicyKit (optional)
+	- readline (command line client)
 
 To configure run:
 	./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var
@@ -64,6 +70,14 @@ For a working system, certain configuration options need to be enabled:
 		By default Ethernet technology support is built-in and
 		enabled. This option can be used to build a small daemon
 		for a specific system if Ethernet support is not required.
+
+	--disable-gadget
+
+		Disable support for USB Ethernet Gadget devices
+
+		By default USB Ethernet Gadget technology support is built-in and
+		enabled. This option can be used to build a small daemon
+		for a specific system if USB Ethernet Gadget support is not required.
 
 	--disable-wifi
 
@@ -176,6 +190,110 @@ For a working system, certain configuration options need to be enabled:
 		written to use NetworkManager to detect online/offline
 		status and have not yet been converted to use ConnMan.
 
+	--disable-client
+
+		Disable support for the command line client
+
+		By default the command line client is enabled and uses the
+		readline library. For specific systems where ConnMan is
+		configured by other means, the command line client can be
+		disabled and the dependency on readline is removed.
+
+	--enable-selinux
+
+		Enable support for compiling SElinux type enforcement rules
+
+		The TE rules are needed if host environment is in enforcing
+		mode. Without this option, the VPN client process cannot
+		send notification to connman-vpnd via net.connman.Task
+		interface. The compiled connman-task.pp module needs to
+		also installed using this command
+			# semodule -i connman-task.pp
+		in order to enable the dbus access.
+
+
+Activating debugging
+====================
+
+One can activate debugging prints in ConnMan using -d command line option.
+If the -d option has no parameters, then debugging is activated for all
+source code files. If the -d option has parameters, they tell which source
+code files have debugging activated. One can use wild cards in file names.
+Example:
+    -d                   Activate all normal debug prints
+    -d src/service.c     This prints debugging info from src/service.c
+                         file only
+    -d src/network.c:src/ipconfig.c
+                         This activates debug prints in src/network.c
+                         and src/ipconfig.c files.
+    -d 'src/n*.c'        This would activate debug print from all the C source
+                         files starting with letter 'n' in src directory.
+                         Note the quotation marks around option, that is to
+                         prevent shell expansion.
+    -d '*/n*.c:*/i*.c'   Activate debug prints for all C source files starting
+                         with letters 'n' or 'i' in any sub-directory.
+
+Some components of ConnMan have environment variable activated debug prints.
+If the environment variable is set, then corresponding component will print
+some extra debugging information.
+Following environment variables can be used:
+    CONNMAN_DHCP_DEBUG        DHCPv4 related debug information
+    CONNMAN_DHCPV6_DEBUG      DHCPv6 related debug information
+    CONNMAN_IPTABLES_DEBUG    Extra information when iptables is used
+    CONNMAN_RESOLV_DEBUG      Name resolver debug prints. These debug prints
+                              are used when ConnMan resolves host names for
+                              its own use.
+                              Note that the DNS proxy debug prints do not
+                              use this environment variable. For that, one
+                              can use "-d src/dnsproxy.c" command line option.
+    CONNMAN_SUPPLICANT_DEBUG  Debugging prints for communication between
+                              connmand and wpa_supplicant processes.
+    CONNMAN_WEB_DEBUG         Debug information when ConnMan does Internet
+                              connectivity check in Wispr and 6to4 components.
+
+Example:
+    CONNMAN_WEB_DEBUG=1 src/connmand -n
+
+If timing conditions are relevant then it is recommended command to
+get log traces as follows:
+    connmand -d 2>&1 | ts '[%H:%M:%.S]' | tee connman.log
+
+The 'ts' program is normaly avialable in the moreutils package.
+
+
+Kernel configuration
+====================
+
+In order to support tethering, the following kernel configuration options
+need to be enabled either as modules (m) or builtin (y):
+
+CONFIG_BRIDGE
+CONFIG_IP_NF_TARGET_MASQUERADE
+
+In order to enable CONFIG_IP_NF_TARGET_MASQUERADE, the following options need
+to be enabled also as modules (m) or builtin (y):
+
+CONFIG_NETFILTER
+CONFIG_NF_CONNTRACK_IPV4
+CONFIG_NF_NAT_IPV4
+
+For routing and statistic support in Sessions, the following options
+need to be enabled as modules (m) or builtin (y):
+
+CONFIG_IP_NF_IPTABLES
+CONFIG_IP_MULTIPLE_TABLES
+CONFIG_NETFILTER_NETLINK_ACCT
+CONFIG_NETFILTER_XT_MATCH_NFACCT
+CONFIG_NETFILTER_XT_CONNMARK
+CONFIG_NETFILTER_XT_TARGET_CONNMARK
+CONFIG_NETFILTER_XT_MATCH_CONNMARK
+
+In order to support USB gadget tethering, the following kernel configuration
+options need to be enabled:
+
+CONFIG_USB_GADGET
+CONFIG_USB_ETH
+
 
 wpa_supplicant configuration
 ============================
@@ -187,14 +305,20 @@ CONFIG_WPS=y
 CONFIG_AP=y
 CONFIG_CTRL_IFACE_DBUS_NEW=y
 
-and, add:
+add:
 
 CONFIG_BGSCAN_SIMPLE=y
 
 This last option will enable the support of background scanning while being
 connected, which is necessary when roaming on wifi.
 
-It is recommended to use wpa_supplicant 0.8.x or 1.x or later.
+It is recommended to use wpa_supplicant 2.x or later.
+
+If wpa_supplicant is configured to D-Bus autostart, then ConnMan will
+trigger the autostart of wpa_supplicant. However please keep in mind
+that this trigger only happens once. If wpa_supplicant stops or crashes,
+ConnMan does not periodically try to autostart it. It is up to systemd or
+similar service management tool to autostart it.
 
 
 VPN
@@ -222,6 +346,46 @@ network. While the same setup works well for a WiFi or ethernet
 uplink.
 
 
+Online check
+============
+
+ConnMan tries to detect if it has Internet connection or not when
+a service is connected. If the online check succeeds the service
+enters Online state, if not it stays in Ready state. The online
+check is also used to detect whether ConnMan is behind a captive
+portal like when you are in hotel and need to pay for connectivity.
+
+The online check is done by trying to fetch status.html document
+from ipv4.connman.net (for IPv4 connectivity) and ipv6.connman.net
+(for IPv6 connectivity). The used URL looks like this
+http://ipv{4|6}.connman.net/online/status.html
+
+During the online check procedure, ConnMan will temporarily install
+a host route to both the ipv4.connman.net and ipv6.connman.net so that
+the online check query can be directed via the correct network
+interface which the connected service is using. This host route is
+automatically removed when the online check is done.
+
+ConnMan sends this very minimal information in http header when doing
+the online check request (example):
+	Host: ipv4.connman.net
+	User-Agent: ConnMan/1.23 wispr
+	Connection: close
+
+Currently following information is returned from connman.net if
+the connection is successfull (200 OK http response code is returned):
+	Server: nginx
+	Date: Mon, 09 Jun 2014 09:25:42 GMT
+	Content-Type: text/html
+	Connection: close
+	X-ConnMan-Status: online
+
+The X-ConnMan-Status field is used in portal detection, if it is missing
+ConnMan will call RequestBrowser method in net.connman.Agent dbus
+interface to handle the portal login if the portal does not support WISPr.
+See doc/agent-api.txt for more details.
+
+
 Information
 ===========
 
@@ -229,4 +393,7 @@ Mailing list:
 	connman@connman.net
 
 For additional information about the project visit ConnMan web site:
+	https://01.org/connman
 	http://www.connman.net
+
+You can report bugs at https://01.org/jira/browse/CM

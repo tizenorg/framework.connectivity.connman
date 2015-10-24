@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2013  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -36,11 +36,19 @@ extern "C" {
 
 struct connman_technology;
 
+int connman_technology_tethering_add_station(enum connman_service_type type,
+					      const char *mac);
+int connman_technology_tethering_remove_station(const char *mac);
+
 void connman_technology_tethering_notify(struct connman_technology *technology,
-							connman_bool_t enabled);
+							bool enabled);
 int connman_technology_set_regdom(const char *alpha2);
 void connman_technology_regdom_notify(struct connman_technology *technology,
 							const char *alpha2);
+
+bool connman_technology_get_wifi_tethering(const char **ssid,
+							const char **psk);
+bool connman_technology_is_tethering_allowed(enum connman_service_type type);
 
 struct connman_technology_driver {
 	const char *name;
@@ -55,7 +63,7 @@ struct connman_technology_driver {
 								int index);
 	int (*set_tethering) (struct connman_technology *technology,
 				const char *identifier, const char *passphrase,
-				const char *bridge, connman_bool_t enabled);
+				const char *bridge, bool enabled, bool hidden);
 	int (*set_regdom) (struct connman_technology *technology,
 						const char *alpha2);
 };

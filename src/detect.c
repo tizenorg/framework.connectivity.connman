@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2013  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -68,17 +68,17 @@ static void detect_newlink(unsigned short type, int index,
 
 	device = find_device(index);
 #if defined TIZEN_EXT
-	if (device != NULL) {
+	if (device) {
 		connman_inet_update_device_ident(device);
 		return;
 	}
 #else
-	if (device != NULL)
+	if (device)
 		return;
 #endif
 
-	device = connman_inet_create_device(index);
-	if (device == NULL)
+	device = connman_device_create_from_index(index);
+	if (!device)
 		return;
 
 	if (connman_device_register(device) < 0) {
@@ -97,7 +97,7 @@ static void detect_dellink(unsigned short type, int index,
 	DBG("type %d index %d", type, index);
 
 	device = find_device(index);
-	if (device == NULL)
+	if (!device)
 		return;
 
 	device_list = g_slist_remove(device_list, device);

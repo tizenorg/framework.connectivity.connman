@@ -2,7 +2,7 @@
  *
  *  Connection Manager
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2013  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -54,7 +54,7 @@ struct entry_data {
 };
 
 static GSList *entry_list = NULL;
-static connman_bool_t dnsproxy_enabled = FALSE;
+static bool dnsproxy_enabled = false;
 
 struct resolvfile_entry {
 	int index;
@@ -168,7 +168,7 @@ int __connman_resolvfile_append(int index, const char *domain,
 		return -ENOENT;
 
 	entry = g_try_new0(struct resolvfile_entry, 1);
-	if (entry == NULL)
+	if (!entry)
 		return -ENOMEM;
 
 	entry->index = index;
@@ -193,7 +193,7 @@ int __connman_resolvfile_remove(int index, const char *domain,
 		if (index >= 0 && entry->index != index)
 			continue;
 
-		if (domain != NULL && g_strcmp0(entry->domain, domain) != 0)
+		if (domain && g_strcmp0(entry->domain, domain) != 0)
 			continue;
 
 		if (g_strcmp0(entry->server, server) != 0)
@@ -207,6 +207,57 @@ int __connman_resolvfile_remove(int index, const char *domain,
 	return resolvfile_export();
 }
 
+static void append_fallback_nameservers(void)
+{
+	GSList *list;
+
+	for (list = entry_list; list; list = list->next) {
+		struct entry_data *entry = list->data;
+
+		if (entry->index >= 0 && entry->server)
+			return;
+	}
+
+	for (list = entry_list; list; list = list->next) {
+		struct entry_data *entry = list->data;
+
+		if (entry->index != -1 || !entry->server)
+			continue;
+
+		DBG("index %d server %s", entry->index, entry->server);
+
+		if (dnsproxy_enabled) {
+			__connman_dnsproxy_append(entry->index, entry->domain,
+					entry->server);
+		} else {
+			__connman_resolvfile_append(entry->index,
+					entry->domain, entry->server);
+		}
+	}
+}
+
+static void remove_fallback_nameservers(void)
+{
+	GSList *list;
+
+	for (list = entry_list; list; list = list->next) {
+		struct entry_data *entry = list->data;
+
+		if (entry->index >= 0 || !entry->server)
+			continue;
+
+		DBG("index %d server %s", entry->index, entry->server);
+
+		if (dnsproxy_enabled) {
+			__connman_dnsproxy_remove(entry->index, entry->domain,
+					entry->server);
+		} else {
+			__connman_resolvfile_remove(entry->index,
+					entry->domain, entry->server);
+		}
+	}
+}
+
 static void remove_entries(GSList *entries)
 {
 	GSList *list;
@@ -216,7 +267,7 @@ static void remove_entries(GSList *entries)
 
 		entry_list = g_slist_remove(entry_list, entry);
 
-		if (dnsproxy_enabled == TRUE) {
+		if (dnsproxy_enabled) {
 			__connman_dnsproxy_remove(entry->index, entry->domain,
 							entry->server);
 		} else {
@@ -232,6 +283,8 @@ static void remove_entries(GSList *entries)
 	}
 
 	g_slist_free(entries);
+
+	append_fallback_nameservers();
 }
 
 static gboolean resolver_expire_cb(gpointer user_data)
@@ -247,9 +300,9 @@ static gboolean resolver_expire_cb(gpointer user_data)
 	if (entry->index >= 0) {
 		struct connman_service *service;
 		service = __connman_service_lookup_from_index(entry->index);
-		if (service != NULL)
+		if (service)
 			__connman_service_nameserver_remove(service,
-							entry->server, TRUE);
+							entry->server, true);
 	}
 
 	remove_entries(list);
@@ -277,12 +330,12 @@ static gboolean resolver_refresh_cb(gpointer user_data)
 
 	if (entry->index >= 0) {
 		service = __connman_service_lookup_from_index(entry->index);
-		if (service != NULL) {
+		if (service) {
 			/*
 			 * Send Router Solicitation to refresh RDNSS entries
 			 * before their lifetime expires
 			 */
-			__connman_refresh_rs_ipv6(
+			__connman_network_refresh_rs_ipv6(
 					__connman_service_get_network(service),
 					entry->index);
 		}
@@ -300,11 +353,11 @@ static int append_resolver(int index, const char *domain,
 	DBG("index %d domain %s server %s lifetime %d flags %d",
 				index, domain, server, lifetime, flags);
 
-	if (server == NULL && domain == NULL)
+	if (!server && !domain)
 		return -EINVAL;
 
 	entry = g_try_new0(struct entry_data, 1);
-	if (entry == NULL)
+	if (!entry)
 		return -ENOMEM;
 
 	entry->index = index;
@@ -313,7 +366,7 @@ static int append_resolver(int index, const char *domain,
 	entry->flags = flags;
 	entry->lifetime = lifetime;
 
-	if (server != NULL)
+	if (server)
 		entry->family = connman_inet_check_ipaddress(server);
 
 	if (lifetime) {
@@ -330,17 +383,21 @@ static int append_resolver(int index, const char *domain,
 		 * We update the service only for those nameservers
 		 * that are automagically added via netlink (lifetime > 0)
 		 */
-		if (server != NULL && entry->index >= 0) {
+		if (server && entry->index >= 0) {
 			struct connman_service *service;
 			service = __connman_service_lookup_from_index(entry->index);
-			if (service != NULL)
+			if (service)
 				__connman_service_nameserver_append(service,
-								server, TRUE);
+								server, true);
 		}
 	}
+
+	if (entry->index >= 0 && entry->server)
+		remove_fallback_nameservers();
+
 	entry_list = g_slist_append(entry_list, entry);
 
-	if (dnsproxy_enabled == TRUE)
+	if (dnsproxy_enabled)
 		__connman_dnsproxy_append(entry->index, domain, server);
 	else
 		__connman_resolvfile_append(entry->index, domain, server);
@@ -363,7 +420,7 @@ int connman_resolver_append(int index, const char *domain,
 
 	DBG("index %d domain %s server %s", index, domain, server);
 
-	if (server == NULL && domain == NULL)
+	if (!server && !domain)
 		return -EINVAL;
 
 	for (list = entry_list; list; list = list->next) {
@@ -374,8 +431,13 @@ int connman_resolver_append(int index, const char *domain,
 
 		if (entry->index == index &&
 				g_strcmp0(entry->domain, domain) == 0 &&
-				g_strcmp0(entry->server, server) == 0)
+				g_strcmp0(entry->server, server) == 0) {
+			if (dnsproxy_enabled)
+				__connman_dnsproxy_append(entry->index, domain,
+						server);
+
 			return -EEXIST;
+		}
 	}
 
 	return append_resolver(index, domain, server, 0, 0);
@@ -399,7 +461,7 @@ int connman_resolver_append_lifetime(int index, const char *domain,
 	DBG("index %d domain %s server %s lifetime %d",
 				index, domain, server, lifetime);
 
-	if (server == NULL && domain == NULL)
+	if (!server && !domain)
 		return -EINVAL;
 
 	for (list = entry_list; list; list = list->next) {
@@ -462,7 +524,7 @@ int connman_resolver_remove(int index, const char *domain, const char *server)
 		break;
 	}
 
-	if (matches == NULL)
+	if (!matches)
 		return -ENOENT;
 
 	remove_entries(matches);
@@ -494,7 +556,7 @@ int connman_resolver_remove_all(int index)
 		matches = g_slist_prepend(matches, entry);
 	}
 
-	if (matches == NULL)
+	if (!matches)
 		return -ENOENT;
 
 	remove_entries(matches);
@@ -502,24 +564,11 @@ int connman_resolver_remove_all(int index)
 	return 0;
 }
 
-/**
- * connman_resolver_flush:
- *
- * Flush pending resolver requests
- */
-void connman_resolver_flush(void)
-{
-	if (dnsproxy_enabled == TRUE)
-		__connman_dnsproxy_flush();
-
-	return;
-}
-
 int __connman_resolver_redo_servers(int index)
 {
 	GSList *list;
 
-	if (dnsproxy_enabled == FALSE)
+	if (!dnsproxy_enabled)
 		return 0;
 
 	DBG("index %d", index);
@@ -546,14 +595,6 @@ int __connman_resolver_redo_servers(int index)
 		 */
 		__connman_dnsproxy_remove(entry->index, entry->domain,
 					entry->server);
-		/*
-		 * Remove also the resolver timer for the old server entry.
-		 * A new timer will be set for the new server entry
-		 * when the next Router Advertisement message arrives
-		 * with RDNSS/DNSSL settings.
-		 */
-		g_source_remove(entry->timeout);
-		entry->timeout = 0;
 
 		__connman_dnsproxy_append(entry->index, entry->domain,
 					entry->server);
@@ -578,14 +619,14 @@ static void free_resolvfile(gpointer data)
 	g_free(entry);
 }
 
-int __connman_resolver_init(connman_bool_t dnsproxy)
+int __connman_resolver_init(gboolean dnsproxy)
 {
 	int i;
 	char **ns;
 
 	DBG("dnsproxy %d", dnsproxy);
 
-	if (dnsproxy == FALSE)
+	if (!dnsproxy)
 		return 0;
 
 	if (__connman_dnsproxy_init() < 0) {
@@ -593,10 +634,10 @@ int __connman_resolver_init(connman_bool_t dnsproxy)
 		return 0;
 	}
 
-	dnsproxy_enabled = TRUE;
+	dnsproxy_enabled = true;
 
 	ns = connman_setting_get_string_list("FallbackNameservers");
-	for (i = 0; ns != NULL && ns[i] != NULL; i += 1) {
+	for (i = 0; ns && ns[i]; i += 1) {
 		DBG("server %s", ns[i]);
 		append_resolver(-1, NULL, ns[i], 0, RESOLVER_FLAG_PUBLIC);
 	}
@@ -608,7 +649,7 @@ void __connman_resolver_cleanup(void)
 {
 	DBG("");
 
-	if (dnsproxy_enabled == TRUE)
+	if (dnsproxy_enabled)
 		__connman_dnsproxy_cleanup();
 	else {
 		GList *list;

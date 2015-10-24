@@ -1,5 +1,5 @@
 AC_PREREQ(2.60)
-AC_INIT(connman, 1.3)
+AC_INIT(connman, 1.29)
 
 AM_INIT_AUTOMAKE([foreign subdir-objects color-tests])
 AC_CONFIG_HEADERS([config.h])
@@ -38,8 +38,6 @@ AC_ARG_ENABLE(optimization, AC_HELP_STRING([--disable-optimization],
 	fi
 ])
 
-GTK_DOC_CHECK
-
 AC_ARG_ENABLE(debug, AC_HELP_STRING([--enable-debug],
 			[enable compiling with debugging information]), [
 	if (test "${enableval}" = "yes" &&
@@ -57,30 +55,17 @@ AC_ARG_ENABLE(pie, AC_HELP_STRING([--enable-pie],
 	fi
 ])
 
-AC_ARG_ENABLE(threads,
-	AC_HELP_STRING([--enable-threads], [enable threading support]),
-			[enable_threads=${enableval}], [enable_threads="no"])
-
 AC_ARG_ENABLE(hh2serial-gps,
 	AC_HELP_STRING([--enable-hh2serial-gps], [enable hh2serial GPS support]),
 			[enable_hh2serial_gps=${enableval}], [enable_hh2serial_gps="no"])
 AM_CONDITIONAL(HH2SERIAL_GPS, test "${enable_hh2serial_gps}" != "no")
 AM_CONDITIONAL(HH2SERIAL_GPS_BUILTIN, test "${enable_hh2serial_gps}" = "builtin")
 
-AC_ARG_ENABLE(tizen-ext,
-	AC_HELP_STRING([--enable-tizen-ext], [enable TIZEN extensions]),
-			[if (test "${enableval}" = "yes"); then
-				CFLAGS="$CFLAGS -DTIZEN_EXT"
-				LIBS="$LIBS -lsmack"
-			fi])
-
-AC_ARG_ENABLE(tizen-rtc-timer,
-	AC_HELP_STRING([--enable-tizen-rtc-timer], [enable TIZEN RTC timer]),
-			[if (test "${enableval}" = "yes"); then
-				CFLAGS="$CFLAGS -DTIZEN_RTC_TIMER"
-				[enable_tizen_rtc_timer="yes"]
-			fi])
-AM_CONDITIONAL(TIZEN_RTC, test "${enable_tizen_rtc_timer}" = "yes")
+AC_ARG_ENABLE(telephony,
+	AC_HELP_STRING([--enable-telephony], [enable Telephony support]),
+			[enable_telephony=${enableval}], [enable_telephony="yes"])
+AM_CONDITIONAL(TELEPHONY, test "${enable_telephony}" != "no")
+AM_CONDITIONAL(TELEPHONY_BUILTIN, test "${enable_telephony}" = "builtin")
 
 AC_ARG_WITH(openconnect, AC_HELP_STRING([--with-openconnect=PROGRAM],
         [specify location of openconnect binary]), [path_openconnect=${withval}])
@@ -142,6 +127,9 @@ fi
 AM_CONDITIONAL(VPNC, test "${enable_vpnc}" != "no")
 AM_CONDITIONAL(VPNC_BUILTIN, test "${enable_vpnc}" = "builtin")
 
+AC_ARG_WITH(l2tp, AC_HELP_STRING([--with-l2tp=PROGRAM],
+        [specify location of l2tp binary]), [path_l2tp=${withval}])
+
 AC_ARG_ENABLE(l2tp,
 	AC_HELP_STRING([--enable-l2tp], [enable l2tp support]),
 			[enable_l2tp=${enableval}], [enable_l2tp="no"])
@@ -163,6 +151,9 @@ if (test "${enable_l2tp}" != "no"); then
 fi
 AM_CONDITIONAL(L2TP, test "${enable_l2tp}" != "no")
 AM_CONDITIONAL(L2TP_BUILTIN, test "${enable_l2tp}" = "builtin")
+
+AC_ARG_WITH(pptp, AC_HELP_STRING([--with-pptp=PROGRAM],
+        [specify location of pptp binary]), [path_pptp=${withval}])
 
 AC_ARG_ENABLE(pptp,
 	AC_HELP_STRING([--enable-pptp], [enable pptp support]),
@@ -209,6 +200,12 @@ AC_ARG_ENABLE(tist,
 AM_CONDITIONAL(TIST, test "${enable_tist}" != "no")
 AM_CONDITIONAL(TIST_BUILTIN, test "${enable_tist}" = "builtin")
 
+AC_ARG_ENABLE(session-policy-local,
+	AC_HELP_STRING([--enable-session-policy-local], [enable local file Session policy configuration support]),
+			[enable_session_policy_local=${enableval}], [enable_session_policy_local="no"])
+AM_CONDITIONAL(SESSION_POLICY_LOCAL, test "${enable_session_policy_local}" != "no")
+AM_CONDITIONAL(SESSION_POLICY_LOCAL_BUILTIN, test "${enable_session_policy_local}" = "builtin")
+
 AC_ARG_WITH(stats-max-file-size, AC_HELP_STRING([--with-stats-max-file-size=SIZE],
 			[Maximal size of a statistics round robin file]),
 			[stats_max_file_size=${withval}])
@@ -224,14 +221,6 @@ PKG_CHECK_MODULES(GLIB, glib-2.0 >= 2.28, dummy=yes,
 				AC_MSG_ERROR(GLib >= 2.28 is required))
 AC_SUBST(GLIB_CFLAGS)
 AC_SUBST(GLIB_LIBS)
-
-if (test "${enable_threads}" = "yes"); then
-	AC_DEFINE(NEED_THREADS, 1, [Define if threading support is required])
-	PKG_CHECK_MODULES(GTHREAD, gthread-2.0 >= 2.16, dummy=yes,
-				AC_MSG_ERROR(GThread >= 2.16 is required))
-	GLIB_CFLAGS="$GLIB_CFLAGS $GTHREAD_CFLAGS"
-	GLIB_LIBS="$GLIB_LIBS $GTHREAD_LIBS"
-fi
 
 PKG_CHECK_MODULES(DBUS, dbus-1 >= 1.4, dummy=yes,
 				AC_MSG_ERROR(D-Bus >= 1.4 is required))
@@ -267,7 +256,7 @@ if (test -n "${path_systemdunit}"); then
 fi
 AM_CONDITIONAL(SYSTEMD, test -n "${path_systemdunit}")
 
-PKG_CHECK_MODULES(XTABLES, xtables, dummy=yes,
+PKG_CHECK_MODULES(XTABLES, xtables >= 1.4.11, dummy=yes,
 				AC_MSG_ERROR(Xtables library is required))
 AC_SUBST(XTABLES_CFLAGS)
 AC_SUBST(XTABLES_LIBS)
@@ -294,6 +283,11 @@ if (test "${enable_polkit}" != "no"); then
 fi
 AM_CONDITIONAL(POLKIT, test "${enable_polkit}" != "no")
 
+AC_ARG_ENABLE(selinux, AC_HELP_STRING([--enable-selinux],
+				[enable selinux support]),
+			[enable_selinux=${enableval}], [enable_selinux="no"])
+AM_CONDITIONAL(SELINUX, test "${enable_selinux}" != "no")
+
 AC_ARG_ENABLE(loopback, AC_HELP_STRING([--disable-loopback],
 				[disable loopback support]),
 					[enable_loopback=${enableval}])
@@ -304,6 +298,11 @@ AC_ARG_ENABLE(ethernet, AC_HELP_STRING([--disable-ethernet],
 					[enable_ethernet=${enableval}])
 AM_CONDITIONAL(ETHERNET, test "${enable_ethernet}" != "no")
 
+AC_ARG_ENABLE(gadget, AC_HELP_STRING([--disable-gadget],
+				[disable USB Gadget support]),
+					[enable_gadget=${enableval}])
+AM_CONDITIONAL(GADGET, test "${enable_gadget}" != "no")
+
 AC_ARG_ENABLE(wifi, AC_HELP_STRING([--disable-wifi],
 				[disable WiFi support]),
 					[enable_wifi=${enableval}])
@@ -313,11 +312,6 @@ AC_ARG_ENABLE(bluetooth, AC_HELP_STRING([--disable-bluetooth],
 				[disable Bluetooth support]),
 					[enable_bluetooth=${enableval}])
 AM_CONDITIONAL(BLUETOOTH, test "${enable_bluetooth}" != "no")
-
-AC_ARG_ENABLE(telephony, AC_HELP_STRING([--disable-telephony],
-				[disable telephony support]),
-					[enable_telephony=${enableval}])
-AM_CONDITIONAL(TELEPHONY, test "${enable_telephony}" != "no")
 
 AC_ARG_ENABLE(ofono, AC_HELP_STRING([--disable-ofono],
 				[disable oFono support]),
@@ -334,6 +328,11 @@ AC_ARG_ENABLE(pacrunner, AC_HELP_STRING([--disable-pacrunner],
 					[enable_pacrunner=${enableval}])
 AM_CONDITIONAL(PACRUNNER, test "${enable_pacrunner}" != "no")
 
+AC_ARG_ENABLE(neard, AC_HELP_STRING([--disable-neard],
+				[disable Neard support]),
+					[enable_neard=${enableval}])
+AM_CONDITIONAL(NEARD, test "${enable_neard}" != "no")
+
 AC_ARG_ENABLE(wispr, AC_HELP_STRING([--disable-wispr],
 				[disable WISPr support]),
 					[enable_wispr=${enableval}])
@@ -344,9 +343,18 @@ AC_ARG_ENABLE(tools, AC_HELP_STRING([--disable-tools],
 					[enable_tools=${enableval}])
 AM_CONDITIONAL(TOOLS, test "${enable_tools}" != "no")
 
+if (test "${enable_tools}" != "no"); then
+	AC_PATH_PROGS(IPTABLES_SAVE, [iptables-save], [],
+						$PATH:/sbin:/usr/sbin)
+	IPTABLES_SAVE=$ac_cv_path_IPTABLES_SAVE
+else
+	IPTABLES_SAVE=""
+fi
+AC_SUBST(IPTABLES_SAVE)
+
 AC_ARG_ENABLE(client, AC_HELP_STRING([--disable-client],
 				[disable command line client]),
-					[disable_client=${enableval}])
+					[enable_client=${enableval}])
 AM_CONDITIONAL(CLIENT, test "${enable_client}" != "no")
 
 if (test "${enable_wispr}" != "no"); then
@@ -372,17 +380,20 @@ if (test "${enable_wifi}" != "no"); then
 						$PATH:/sbin:/usr/sbin)
 fi
 
-AC_ARG_ENABLE(linklocaladdr, AC_HELP_STRING([--disable-linklocaladdr],
-			[disable link local address when dhcp failed]), [
-	if (test "${enableval}" = "no"); then
-		CFLAGS="$CFLAGS -DDISABLE_LINK_LOCAL_ADDR"
-	fi
-])
-
 AC_ARG_ENABLE(datafiles, AC_HELP_STRING([--disable-datafiles],
 			[don't install configuration and data files]),
 					[enable_datafiles=${enableval}])
 AM_CONDITIONAL(DATAFILES, test "${enable_datafiles}" != "no")
 
-AC_OUTPUT(Makefile include/version.h src/connman.service
-				scripts/connman doc/version.xml connman.pc)
+if (test "${enable_client}" != "no"); then
+	AC_CHECK_HEADERS(readline/readline.h, dummy=yes,
+		AC_MSG_ERROR(readline header files are required))
+fi
+
+AM_CONDITIONAL(VPN, test "${enable_openconnect}" != "no" -o \
+			"${enable_openvpn}" != "no" -o \
+			"${enable_vpnc}" != "no" -o \
+			"${enable_l2tp}" != "no" -o \
+			"${enable_pptp}" != "no")
+
+AC_OUTPUT(Makefile include/version.h connman.pc src/connman.service src/connman_tv.service)

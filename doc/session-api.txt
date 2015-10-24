@@ -84,31 +84,7 @@ Methods		void Destroy()
 			to be sent. Some changes might cause the session to
 			be moved to offline state.
 
-Settings	string  Bearer [readonly]
-
-			This indicates the current bearer that is used
-			for this session. Or an empty string if no bearer
-			if available.
-
-		string ConnectionType [readwrite]
-
-			This is used to indicate which connection is requested
-			from the session. The state of the session will be
-			updated accordingly. Values can be nothing, 'local' or
-			'internet'.
-			'local' means the session requests to be connected,
-			but does not require specifically to be online.
-			Therefore State property will be set to 'connected' if
-			underlying service gets ready and/or online.
-			'online' means the session requests to be connected,
-			and online. State property will never get 'connected'
-			but instead will switch to 'online' if underlying
-			service gets online.
-			No value means the session requests any kind of
-			connection and the state will be updated on all steps,
-			'connected' and 'online'. This is the default value.
-
-		boolean State [readonly]
+Settings	string State [readonly]
 
 			This indicates if the connection is disconnected,
 			connected or online. It is updated according to the
@@ -128,41 +104,31 @@ Settings	string  Bearer [readonly]
 			is done to avoid congestion on bearers like cellular
 			etc.
 
-		boolean Priority [readwrite]
-
-			This allows a session to mark itself as priority or
-			not. In general application are not allowed to make
-			themselves more important than others.
-
-			The priority handling is done internally by usage
-			and first come, first serve order. By default this
-			settings is of course false.
-
-			Internally there can be different priorities for
-			different application, but these are defined by a
-			configuration file and not via this interface.
-
-			An application that calls the method to connect
-			a session is preferred over other sessions. This
-			priority value is more for application that want to
-			push themselves up in the asychronization notification
-			queue once a bearer becomes online.
-
-			This actual priority order also depends on the
-			allowed bearers and other factors. This is setting
-			is just a little indicator of one application being
-			notified before another one.
-
-			For example a streaming session should set the
-			priority value. As soon as realtime data is involved
-			then this should be set. An email client should not
-			set this value.
-
 		string Name [readonly]
 
 			The Service name to which the system is connected.
 			It should only be used for displaying it in the UI
 			and not for getting hold on session object.
+
+		string  Bearer [readonly]
+
+			This indicates the current bearer that is used
+			for this session. Or an empty string if no bearer
+			if available.
+
+		string  Interface [readonly]
+
+			Interface name used by the service object to connect.
+			This name can be used for SO_BINDTODEVICE in the
+			application.
+
+		dict IPv4 [readonly]
+
+			Current IPv4 configuration.
+
+		dict IPv6 [readonly]
+
+			Current IPv6 configuration.
 
 		array{string} AllowedBearers [readwrite]
 
@@ -175,141 +141,44 @@ Settings	string  Bearer [readonly]
 			entries in this list.
 
 			Also "*" matches any bearer. This is usefull to prefer
-			certain bearers such as Wifi with a fallback to any
+			certain bearers such as 'wifi' with a fallback to any
 			other available bearer.
 
-		dict IPv4 [readonly]
+			Invalid bearer names will be ignored and removed
+			from the list. And empty AllowedBearers will
+			not match to any bearer, therefore the session
+			will never go online.
 
-			Current IPv4 configuration.
+			When a session is created and the provided settings
+			dictionary does not contain AllowedBearers, a default
+			session with "*" will be created.
 
-		dict IPv6 [readonly]
+		string ConnectionType [readwrite]
 
-			Current IPv6 configuration.
+			This is used to indicate which connection is requested
+			from the session. The state of the session will be
+			updated accordingly. Values can be 'local',
+			'internet' or 'any'.
 
-		boolean AvoidHandover [readwrite]
+			'local' means the session requests to be connected,
+			but does not require specifically to be online.
+			Therefore State property will be set to 'connected' if
+			underlying service gets ready and/or online.
 
-			By default this setting is false. It can be used
-			to indicate that a handover is currently not a good
-			idea. However no connection is guaranteed. So a
-			handover can happen anyway. This is just an indication
-			that the application would like to avoid it right now.
+			'online' means the session requests to be connected,
+			and online. State property will never get 'connected'
+			but instead will switch to 'online' if underlying
+			service gets online.
 
-			It is a bad idea to always enable this settings and
-			actually it will be reset after a while to avoid
-			congestion.
+			'any' means either 'local' or 'internet'.
 
-			Main use case it is for application that are currently
-			doing a specific tasks that it prefers to finish
-			before allowing handovers again. An example would
-			be synchronization.
+			Invalid values will be ignored and removed. An
+			empty ConnectionType is an invalid configuration.
 
-			Never the less application needs to be aware that
-			handovers can happen at any time even if this is
-			set to true.
+			When a session is created and the provided settings
+			dictionary does not contain ConnectionType, a default
+			session with 'any' will be created.
 
-		boolean StayConnected [readwrite]
+			(This setting will be removed when the unique process
+			identification problem is solved.)
 
-			This disables the idle timeout for this session. There
-			is no guarantee and this should be used with care.
-
-			If the system is not online yet this value is ignored.
-
-		uint32  PeriodicConnect [readwrite]
-
-			Indicate that a periodic connection attempt every
-			n minutes should be made. The minutes value is a
-			suggestion when to connection. There is no guarantee
-			that it will be made or will succeed.
-
-			A value of 0 disable this feature.
-
-			This feature is interesting for applications that
-			wanna check status on a regular interval. And instead
-			of the application waking up and trying to connect,
-			this can be centralized nicely and multiple wakeups
-			avoided in case no connection is available.
-
-			An example application would be an email client that
-			wants to check for new emails every 10 minutes.
-
-			On purpose the smallest setting is 1 minute here since
-			waking up more often and trying to set up a connection
-			seems rather pointless use case.
-
-			If an interval step has passed this can be nicely
-			rescheduled when any connection matching the bearer
-			settings becomes available becomes available. Using
-			this feature it is also easy to avoid congestion.
-
-		uint32  IdleTimeout [readwrite]
-
-			If the system is idle for given period then it should
-			go offline.
-
-			If the timeout is 0, this feature is disabled. If
-			different values are provided by several session object
-			the longest interval is taken as timeout value.
-
-		boolean EmergencyCall [readwrite]
-
-			Boolean representing the emergency mode of the
-			modem. The Emergency is true if an emergency call or
-			related operation is currently active.
-
-			If the emergency application sets this setting to true
-			all other session will be informed about the emergency
-			situation with setting it also to true. Only the
-			emergency application can set back to false.
-
-			As long the EmergencyCall is true no new session can
-			be created.
-
-			Only one application is supposed to write this setting
-			and therefore it will be protected by additional
-			PolicyKit rule so that only the emergency application
-			can write.
-
-			The emergency application is expected to call Connect()
-			after setting this setting true. If the emergency
-			situation is over the application should call
-			Disconnect() and also set the EmergencyCall to false
-			afterward.
-
-			Note only services matching the AllowedBearers rule
-			will be considered.
-
-		string  RoamingPolicy [readwrite]
-
-			The allowed roaming behavior.
-
-			Valid policies are "national", "international",
-			"default", "always" and "forbidden".
-
-			"national" allows roaming within a country.
-			"international" allows roaming in a country and
-			between countries.
-
-			"default" is used to tell the Session to use
-			the global roaming setting.
-
-			"always" will overwrite the default "forbidden"
-			value which is useful for emergency application.
-			This value will be protected by additional PolicyKit
-			rule.
-
-			Default value is "forbidden".
-
-		string  Interface [readonly]
-
-			Interface name used by the service object to connect.
-			This name can be used for SO_BINDTODEVICE in the
-			application.
-
-		uint32  SessionMarker [readonly]
-
-			The unique session marker can be used to mark all
-			traffic from the application with the SO_MARK
-			socket option. In combination of the EmergencyCall
-			this allows ConnMan to setup the firewall rules
-			that only traffic from the emergency application
-			are transmitted.

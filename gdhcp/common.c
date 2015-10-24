@@ -1,7 +1,7 @@
 /*
  *  DHCP library with GLib integration
  *
- *  Copyright (C) 2007-2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2007-2013  Intel Corporation. All rights reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2 as
@@ -35,6 +35,7 @@
 #include <netpacket/packet.h>
 #include <net/ethernet.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
 
 #include "gdhcp.h"
 #include "common.h"
@@ -57,6 +58,42 @@ static const DHCPOption client_options[] = {
 	{ OPTION_STRING,		0xfc }, /* UNOFFICIAL proxy-pac */
 	{ OPTION_UNKNOWN,		0x00 },
 };
+
+#define URANDOM "/dev/urandom"
+static int random_fd = -1;
+
+int dhcp_get_random(uint64_t *val)
+{
+	int r;
+
+	if (random_fd < 0) {
+		random_fd = open(URANDOM, O_RDONLY);
+		if (random_fd < 0) {
+			r = -errno;
+			*val = random();
+
+			return r;
+		}
+	}
+
+	if (read(random_fd, val, sizeof(uint64_t)) < 0) {
+		r = -errno;
+		*val = random();
+
+		return r;
+	}
+
+	return 0;
+}
+
+void dhcp_cleanup_random(void)
+{
+	if (random_fd < 0)
+		return;
+
+	close(random_fd);
+	random_fd = -1;
+}
 
 GDHCPOptionType dhcp_get_code_type(uint8_t code)
 {
@@ -144,6 +181,71 @@ int dhcp_end_option(uint8_t *optionptr)
 	return i;
 }
 
+/* get a rough idea of how long an option will be */
+static const uint8_t len_of_option_as_string[] = {
+	[OPTION_IP] = sizeof("255.255.255.255 "),
+	[OPTION_STRING] = 1,
+	[OPTION_U8] = sizeof("255 "),
+	[OPTION_U16] = sizeof("65535 "),
+	[OPTION_U32] = sizeof("4294967295 "),
+};
+
+static int sprint_nip(char *dest, const char *pre, const uint8_t *ip)
+{
+	return sprintf(dest, "%s%u.%u.%u.%u", pre, ip[0], ip[1], ip[2], ip[3]);
+}
+
+/* Create "opt_value1 option_value2 ..." string */
+char *malloc_option_value_string(uint8_t *option, GDHCPOptionType type)
+{
+	unsigned upper_length;
+	int len, optlen;
+	char *dest, *ret;
+
+	len = option[OPT_LEN - OPT_DATA];
+	type &= OPTION_TYPE_MASK;
+	optlen = dhcp_option_lengths[type];
+	if (optlen == 0)
+		return NULL;
+	upper_length = len_of_option_as_string[type] *
+			((unsigned)len / (unsigned)optlen);
+	dest = ret = g_malloc(upper_length + 1);
+	if (ret == NULL)
+		return NULL;
+
+	while (len >= optlen) {
+		switch (type) {
+		case OPTION_IP:
+			dest += sprint_nip(dest, "", option);
+			break;
+		case OPTION_U16: {
+			uint16_t val_u16 = get_be16(option);
+			dest += sprintf(dest, "%u", val_u16);
+			break;
+		}
+		case OPTION_U32: {
+			uint32_t val_u32 = get_be32(option);
+			dest += sprintf(dest, "%u", val_u32);
+			break;
+		}
+		case OPTION_STRING:
+			memcpy(dest, option, len);
+			dest[len] = '\0';
+			return ret;
+		default:
+			break;
+		}
+		option += optlen;
+		len -= optlen;
+		if (len <= 0)
+			break;
+		*dest++ = ' ';
+		*dest = '\0';
+	}
+
+	return ret;
+}
+
 uint8_t *dhcpv6_get_option(struct dhcpv6_packet *packet, uint16_t pkt_len,
 			int code, uint16_t *option_len, int *option_count)
 {
@@ -170,7 +272,7 @@ uint8_t *dhcpv6_get_option(struct dhcpv6_packet *packet, uint16_t pkt_len,
 			break;
 
 		if (opt_code == code) {
-			if (option_len != NULL)
+			if (option_len)
 				*option_len = opt_len;
 			found = optionptr + 2 + 2;
 			count++;
@@ -182,15 +284,15 @@ uint8_t *dhcpv6_get_option(struct dhcpv6_packet *packet, uint16_t pkt_len,
 		optionptr += len;
 	}
 
-	if (option_count != NULL)
+	if (option_count)
 		*option_count = count;
 
 	return found;
 
 bad_packet:
-	if (option_len != NULL)
+	if (option_len)
 		*option_len = 0;
-	if (option_count != NULL)
+	if (option_count)
 		*option_count = 0;
 	return NULL;
 }
@@ -356,44 +458,18 @@ void dhcp_init_header(struct dhcp_packet *packet, char type)
 void dhcpv6_init_header(struct dhcpv6_packet *packet, uint8_t type)
 {
 	int id;
+	uint64_t rand;
 
 	memset(packet, 0, sizeof(*packet));
 
 	packet->message = type;
 
-	id = random();
+	dhcp_get_random(&rand);
+	id = rand;
 
 	packet->transaction_id[0] = (id >> 16) & 0xff;
 	packet->transaction_id[1] = (id >> 8) & 0xff;
 	packet->transaction_id[2] = id & 0xff;
-}
-
-static gboolean check_vendor(uint8_t  *option_vendor, const char *vendor)
-{
-	uint8_t vendor_length = sizeof(vendor) - 1;
-
-	if (option_vendor[OPT_LEN - OPT_DATA] != vendor_length)
-		return FALSE;
-
-	if (memcmp(option_vendor, vendor, vendor_length) != 0)
-		return FALSE;
-
-	return TRUE;
-}
-
-static void check_broken_vendor(struct dhcp_packet *packet)
-{
-	uint8_t *vendor;
-
-	if (packet->op != BOOTREQUEST)
-		return;
-
-	vendor = dhcp_get_option(packet, DHCP_VENDOR);
-	if (vendor == NULL)
-		return;
-
-	if (check_vendor(vendor, "MSFT 98") == TRUE)
-		packet->flags |= htons(BROADCAST_FLAG);
 }
 
 int dhcp_recv_l3_packet(struct dhcp_packet *packet, int fd)
@@ -408,8 +484,6 @@ int dhcp_recv_l3_packet(struct dhcp_packet *packet, int fd)
 
 	if (packet->cookie != htonl(DHCP_MAGIC))
 		return -EPROTO;
-
-	check_broken_vendor(packet);
 
 	return n;
 }
@@ -464,19 +538,14 @@ uint16_t dhcp_checksum(void *addr, int count)
 static const struct in6_addr in6addr_all_dhcp_relay_agents_and_servers_mc =
 	IN6ADDR_ALL_DHCP_RELAY_AGENTS_AND_SERVERS_MC_INIT;
 
-/* from netinet/in.h */
-struct in6_pktinfo {
-	struct in6_addr ipi6_addr;  /* src/dst IPv6 address */
-	unsigned int ipi6_ifindex;  /* send/recv interface index */
-};
-
 int dhcpv6_send_packet(int index, struct dhcpv6_packet *dhcp_pkt, int len)
 {
 	struct msghdr m;
 	struct iovec v;
 	struct in6_pktinfo *pktinfo;
 	struct cmsghdr *cmsg;
-	int fd, ret;
+	int fd, ret, opt = 1;
+	struct sockaddr_in6 src;
 	struct sockaddr_in6 dst;
 	void *control_buf;
 	size_t control_buf_len;
@@ -484,6 +553,17 @@ int dhcpv6_send_packet(int index, struct dhcpv6_packet *dhcp_pkt, int len)
 	fd = socket(PF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
 	if (fd < 0)
 		return -errno;
+
+	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+	memset(&src, 0, sizeof(src));
+	src.sin6_family = AF_INET6;
+	src.sin6_port = htons(DHCPV6_CLIENT_PORT);
+
+	if (bind(fd, (struct sockaddr *) &src, sizeof(src)) <0) {
+		close(fd);
+		return -errno;
+	}
 
 	memset(&dst, 0, sizeof(dst));
 	dst.sin6_family = AF_INET6;
@@ -493,7 +573,7 @@ int dhcpv6_send_packet(int index, struct dhcpv6_packet *dhcp_pkt, int len)
 
 	control_buf_len = CMSG_SPACE(sizeof(struct in6_pktinfo));
 	control_buf = g_try_malloc0(control_buf_len);
-	if (control_buf == NULL) {
+	if (!control_buf) {
 		close(fd);
 		return -ENOMEM;
 	}
@@ -522,8 +602,17 @@ int dhcpv6_send_packet(int index, struct dhcpv6_packet *dhcp_pkt, int len)
 	m.msg_controllen = cmsg->cmsg_len;
 
 	ret = sendmsg(fd, &m, 0);
-	if (ret < 0)
-		perror("DHCPv6 msg send failed");
+	if (ret < 0) {
+		char *msg = "DHCPv6 msg send failed";
+
+		if (errno == EADDRNOTAVAIL) {
+			char *str = g_strdup_printf("%s (index %d)",
+					msg, index);
+			perror(str);
+			g_free(str);
+		} else
+			perror(msg);
+	}
 
 	g_free(control_buf);
 	close(fd);
@@ -532,8 +621,9 @@ int dhcpv6_send_packet(int index, struct dhcpv6_packet *dhcp_pkt, int len)
 }
 
 int dhcp_send_raw_packet(struct dhcp_packet *dhcp_pkt,
-		uint32_t source_ip, int source_port, uint32_t dest_ip,
-			int dest_port, const uint8_t *dest_arp, int ifindex)
+			uint32_t source_ip, int source_port,
+			uint32_t dest_ip, int dest_port,
+			const uint8_t *dest_arp, int ifindex, bool bcast)
 {
 	struct sockaddr_ll dest;
 	struct ip_udp_dhcp_packet packet;
@@ -549,6 +639,9 @@ int dhcp_send_raw_packet(struct dhcp_packet *dhcp_pkt,
 	fd = socket(PF_PACKET, SOCK_DGRAM | SOCK_CLOEXEC, htons(ETH_P_IP));
 	if (fd < 0)
 		return -errno;
+
+	if (bcast)
+		dhcp_pkt->flags |= htons(BROADCAST_FLAG);
 
 	memset(&dest, 0, sizeof(dest));
 	memset(&packet, 0, sizeof(packet));
@@ -715,16 +808,16 @@ char *get_interface_name(int index)
 	return g_strdup(ifr.ifr_name);
 }
 
-gboolean interface_is_up(int index)
+bool interface_is_up(int index)
 {
 	int sk, err;
 	struct ifreq ifr;
-	gboolean ret = FALSE;
+	bool ret = false;
 
 	sk = socket(PF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
 	if (sk < 0) {
 		perror("Open socket error");
-		return FALSE;
+		return false;
 	}
 
 	memset(&ifr, 0, sizeof(ifr));
@@ -743,7 +836,7 @@ gboolean interface_is_up(int index)
 	}
 
 	if (ifr.ifr_flags & IFF_UP)
-		ret = TRUE;
+		ret = true;
 
 done:
 	close(sk);

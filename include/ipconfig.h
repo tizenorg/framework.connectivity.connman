@@ -22,6 +22,8 @@
 #ifndef __CONNMAN_IPCONFIG_H
 #define __CONNMAN_IPCONFIG_H
 
+#include <connman/ipaddress.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -32,28 +34,11 @@ extern "C" {
  * @short_description: Functions for IP configuration handling
  */
 
-struct connman_ipaddress;
-
-struct connman_ipaddress *connman_ipaddress_alloc(int family);
-void connman_ipaddress_free(struct connman_ipaddress *ipaddress);
-int connman_ipaddress_set_ipv4(struct connman_ipaddress *ipaddress,
-				const char *address, const char *netmask,
-				const char *gateway);
-int connman_ipaddress_set_ipv6(struct connman_ipaddress *ipaddress,
-				const char *address,
-				unsigned char prefix_length,
-				const char *gateway);
-void connman_ipaddress_set_peer(struct connman_ipaddress *ipaddress,
-				const char *peer);
-void connman_ipaddress_clear(struct connman_ipaddress *ipaddress);
-void connman_ipaddress_copy(struct connman_ipaddress *ipaddress,
-					struct connman_ipaddress *source);
-
 enum connman_ipconfig_type {
 	CONNMAN_IPCONFIG_TYPE_UNKNOWN = 0,
-	CONNMAN_IPCONFIG_TYPE_ALL     = 0,
 	CONNMAN_IPCONFIG_TYPE_IPV4    = 1,
 	CONNMAN_IPCONFIG_TYPE_IPV6    = 2,
+	CONNMAN_IPCONFIG_TYPE_ALL     = 3,
 };
 
 enum connman_ipconfig_method {
