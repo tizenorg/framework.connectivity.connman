@@ -1,5 +1,5 @@
 Name:           connman
-Version:        1.29.38
+Version:        1.29.37
 Release:        1
 License:        GPL-2.0+
 Summary:        Connection Manager
